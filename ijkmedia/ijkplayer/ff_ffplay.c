@@ -3277,10 +3277,11 @@ static int read_thread(void *arg)
     /* open the streams */
     if (st_index[AVMEDIA_TYPE_AUDIO] >= 0) {
         stream_component_open(ffp, st_index[AVMEDIA_TYPE_AUDIO]);
-    } else {
-        ffp->av_sync_type = AV_SYNC_VIDEO_MASTER;
-        is->av_sync_type  = ffp->av_sync_type;
     }
+//    else {
+//        ffp->av_sync_type = AV_SYNC_VIDEO_MASTER;
+//        is->av_sync_type  = ffp->av_sync_type;
+//    }
 
     ret = -1;
     if (st_index[AVMEDIA_TYPE_VIDEO] >= 0) {
