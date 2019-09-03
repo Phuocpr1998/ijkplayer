@@ -4793,7 +4793,7 @@ void ffp_set_playback_rate(FFPlayer *ffp, float rate)
     ffp->pf_playback_rate = rate;
     ffp->pf_playback_rate_changed = 1;
     
-    if (ffp->is->audio_stream < 0) {
+    if (ffp->is != NULL && ffp->is->audio_stream < 0) {
         // if non audio track be selectd, default sync clock is external clock.
         // BTW: if choose video master sync type, non clock sync, video freerun.
         // ergo, setclockspeed is noneffective for this situation.
