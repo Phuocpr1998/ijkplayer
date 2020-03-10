@@ -5051,3 +5051,26 @@ IjkMediaMeta *ffp_get_meta_l(FFPlayer *ffp)
 
     return ffp->meta;
 }
+
+void ffp_get_current_frame_l(FFPlayer *ffp, uint8_t *frame_buf)
+{
+  VideoState *is = ffp->is;
+  Frame *vp;
+  int i = 0, linesize = 0, pixels = 0;
+  uint8_t *src;
+
+  if (is->pictq.rindex < 0)
+    return;
+  vp = &is->pictq.queue[is->pictq.rindex];
+  if (vp == NULL || vp->bmp == NULL)
+    return;
+  int height = vp->bmp->h;
+  int width = vp->bmp->w;
+  // copy data to bitmap in java code
+  linesize = vp->bmp->pitches[0];
+  src = vp->bmp->pixels[0];
+  pixels = width * 4;
+  for (i = 0; i < height; i++) {
+      memcpy(frame_buf + i * pixels, src + i * linesize, pixels);
+  }
+}
