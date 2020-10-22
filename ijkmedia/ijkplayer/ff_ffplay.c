@@ -3062,6 +3062,22 @@ static int is_realtime(AVFormatContext *s)
     return 0;
 }
 
+//static int refind audio/video stream
+static int refind_stream(FFPlayer *ffp, AVFormatContext *ic, int stream_index, const char * key_stream) {
+    /* open the streams */
+    if (stream_index >= 0) {
+#warning check
+        stream_component_open(ffp, stream_index);
+        av_log(NULL, AV_LOG_INFO, "open stream\n");
+    }
+    ijkmeta_set_avformat_context_l(ffp->meta, ic);
+    if (stream_index >= 0){
+        ijkmeta_set_int64_l(ffp->meta, key_stream, stream_index);
+        av_log(NULL, AV_LOG_INFO, "init stream\n");
+    }
+    return 0;
+}
+
 /* this thread gets the stream from the disk or the network */
 static int read_thread(void *arg)
 {
@@ -3519,6 +3535,39 @@ static int read_thread(void *arg)
         }
         pkt->flags = 0;
         ret = av_read_frame(ic, pkt);
+
+        if (!ffp->audio_disable && is->audio_stream < 0) {
+            av_log(NULL, AV_LOG_INFO, "is->audio_stream = %d\n", is->audio_stream);
+#if 1
+            int audio_stream_idx = av_find_best_stream(ic, AVMEDIA_TYPE_AUDIO,
+                                                           st_index[AVMEDIA_TYPE_AUDIO],
+                                                           st_index[AVMEDIA_TYPE_VIDEO],
+                                                           NULL, 0);
+            if (audio_stream_idx >= 0){
+                // refine audio
+                av_log(NULL, AV_LOG_WARNING, "Audio finded\n");
+                refind_stream(ffp, ic, audio_stream_idx, IJKM_KEY_AUDIO_STREAM);
+            }
+            av_log(NULL, AV_LOG_INFO, "is->audio_stream = %d\n", is->audio_stream);
+#endif
+        }
+
+        if (!ffp->video_disable && is->video_stream < 0) {
+            av_log(NULL, AV_LOG_INFO, "is->video_stream = %d\n", is->video_stream);
+#if 1
+            int video_stream_idx = av_find_best_stream(ic, AVMEDIA_TYPE_VIDEO,
+                                                           st_index[AVMEDIA_TYPE_VIDEO],
+                                                           st_index[AVMEDIA_TYPE_AUDIO],
+                                                           NULL, 0);
+            if (video_stream_idx >= 0){
+                // refine video
+                av_log(NULL, AV_LOG_WARNING, "Video finded\n");
+                refind_stream(ffp, ic, video_stream_idx, IJKM_KEY_VIDEO_STREAM);
+            }
+            av_log(NULL, AV_LOG_INFO, "is->video_stream = %d\n", is->video_stream);
+#endif
+        }
+
         if (ret < 0) {
             int pb_eof = 0;
             int pb_error = 0;
@@ -4860,6 +4909,8 @@ int ffp_set_stream_selected(FFPlayer *ffp, int stream, int selected)
                     stream_component_close(ffp, is->video_stream);
                 break;
             case AVMEDIA_TYPE_AUDIO:
+                // hotfix mute unmute audio
+                ffp->audio_disable = false;
                 if (stream != is->audio_stream && is->audio_stream >= 0)
                     stream_component_close(ffp, is->audio_stream);
                 break;
@@ -4881,6 +4932,8 @@ int ffp_set_stream_selected(FFPlayer *ffp, int stream, int selected)
             case AVMEDIA_TYPE_AUDIO:
                 if (stream == is->audio_stream)
                     stream_component_close(ffp, is->audio_stream);
+                // hotfix mute unmute audio
+                ffp->audio_disable = true;
                 break;
             case AVMEDIA_TYPE_SUBTITLE:
                 if (stream == is->subtitle_stream)
