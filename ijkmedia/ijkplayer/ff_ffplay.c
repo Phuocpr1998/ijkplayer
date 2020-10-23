@@ -3536,7 +3536,7 @@ static int read_thread(void *arg)
         pkt->flags = 0;
         ret = av_read_frame(ic, pkt);
 
-        if (!ffp->audio_disable && is->audio_stream < 0) {
+        if (!ffp->audio_disable && is->audio_stream < 0 && ffp->countFindAudioStream > 0) {
             av_log(NULL, AV_LOG_INFO, "is->audio_stream = %d\n", is->audio_stream);
 #if 1
             int audio_stream_idx = av_find_best_stream(ic, AVMEDIA_TYPE_AUDIO,
@@ -3549,6 +3549,7 @@ static int read_thread(void *arg)
                 refind_stream(ffp, ic, audio_stream_idx, IJKM_KEY_AUDIO_STREAM);
             }
             av_log(NULL, AV_LOG_INFO, "is->audio_stream = %d\n", is->audio_stream);
+            ffp->countFindAudioStream--;
 #endif
         }
 
@@ -3779,7 +3780,7 @@ static VideoState *stream_open(FFPlayer *ffp, const char *filename, AVInputForma
         }
     }
     is->initialized_decoder = 1;
-
+    ffp->countFindAudioStream = 100; // init count Find Audio Stream
     return is;
 fail:
     is->initialized_decoder = 1;
@@ -4896,7 +4897,15 @@ int ffp_set_stream_selected(FFPlayer *ffp, int stream, int selected)
         return -1;
 
     if (stream < 0 || stream >= ic->nb_streams) {
-        av_log(ffp, AV_LOG_ERROR, "invalid stream index %d >= stream number (%d)\n", stream, ic->nb_streams);
+        if (stream == -2511) { // trick disable audio after init audio stream
+            ffp->audio_disable = !selected;
+            if (!ffp->audio_disable) {
+                ffp->countFindAudioStream = 100;
+            }
+            av_log(ffp, AV_LOG_INFO, "Trigger magic number %d\n", stream);
+        } else {
+            av_log(ffp, AV_LOG_ERROR, "invalid stream index %d >= stream number (%d)\n", stream, ic->nb_streams);
+        }
         return -1;
     }
 
@@ -4909,8 +4918,6 @@ int ffp_set_stream_selected(FFPlayer *ffp, int stream, int selected)
                     stream_component_close(ffp, is->video_stream);
                 break;
             case AVMEDIA_TYPE_AUDIO:
-                // hotfix mute unmute audio
-                ffp->audio_disable = false;
                 if (stream != is->audio_stream && is->audio_stream >= 0)
                     stream_component_close(ffp, is->audio_stream);
                 break;
@@ -4922,7 +4929,10 @@ int ffp_set_stream_selected(FFPlayer *ffp, int stream, int selected)
                 av_log(ffp, AV_LOG_ERROR, "select invalid stream %d of video type %d\n", stream, codecpar->codec_type);
                 return -1;
         }
-        return stream_component_open(ffp, stream);
+        // hotfix mute unmute audio
+        int ret = stream_component_open(ffp, stream);
+        ffp->audio_disable = false;
+        return ret;
     } else {
         switch (codecpar->codec_type) {
             case AVMEDIA_TYPE_VIDEO:
@@ -4930,10 +4940,10 @@ int ffp_set_stream_selected(FFPlayer *ffp, int stream, int selected)
                     stream_component_close(ffp, is->video_stream);
                 break;
             case AVMEDIA_TYPE_AUDIO:
-                if (stream == is->audio_stream)
-                    stream_component_close(ffp, is->audio_stream);
                 // hotfix mute unmute audio
                 ffp->audio_disable = true;
+                if (stream == is->audio_stream)
+                    stream_component_close(ffp, is->audio_stream);
                 break;
             case AVMEDIA_TYPE_SUBTITLE:
                 if (stream == is->subtitle_stream)
