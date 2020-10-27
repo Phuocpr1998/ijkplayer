@@ -34,7 +34,7 @@
 #import "ijkioapplication.h"
 #include "string.h"
 
-static const char *kIJKFFRequiredFFmpegVersion = "ff3.4--git--ijk0.8.7--20200911--001";
+static const char *kIJKFFRequiredFFmpegVersion = "ff3.4--ijk0.8.7--20180103--001";
 
 // It means you didn't call shutdown if you found this object leaked.
 @interface IJKWeakHolder : NSObject
@@ -995,6 +995,11 @@ inline static NSString *formatedSpeed(int64_t bytes, int64_t elapsed_milli) {
     if (!_mediaPlayer)
         return 0;
     return ijkmp_get_property_float(_mediaPlayer, FFP_PROP_FLOAT_DROP_FRAME_RATE, 0.0f);
+}
+
+- (uint8_t*)getCurrentFrame:(int*)frameWidth withframeHeight:(int*)frameHeight;
+{
+    return ijkmp_get_current_frame(_mediaPlayer, frameWidth, frameHeight);
 }
 
 inline static void fillMetaInternal(NSMutableDictionary *meta, IjkMediaMeta *rawMeta, const char *name, NSString *defaultValue)

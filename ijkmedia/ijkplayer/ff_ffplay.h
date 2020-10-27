@@ -114,6 +114,7 @@ float     ffp_get_property_float(FFPlayer *ffp, int id, float default_value);
 void      ffp_set_property_float(FFPlayer *ffp, int id, float value);
 int64_t   ffp_get_property_int64(FFPlayer *ffp, int id, int64_t default_value);
 void      ffp_set_property_int64(FFPlayer *ffp, int id, int64_t value);
+uint8_t* ffp_get_current_frame_l(FFPlayer *ffp,int * frameWidth, int * frameHeight);
 
 // must be freed with free();
 struct IjkMediaMeta *ffp_get_meta_l(FFPlayer *ffp);

@@ -48,7 +48,6 @@
 #include "libavutil/avassert.h"
 #include "libavutil/time.h"
 #include "libavformat/avformat.h"
-#include "ijkavformat/ijklas.h"
 #if CONFIG_AVDEVICE
 #include "libavdevice/avdevice.h"
 #endif
@@ -3117,13 +3116,6 @@ static int read_thread(void *arg)
 
     if (ffp->iformat_name)
         is->iformat = av_find_input_format(ffp->iformat_name);
- 
-    if (ffp->is_manifest) {
-        extern AVInputFormat ijkff_las_demuxer;
-        is->iformat = &ijkff_las_demuxer;
-        av_dict_set_int(&ffp->format_opts, "las_player_statistic", (intptr_t) (&ffp->las_player_statistic), 0);
-        ffp->find_stream_info = false;
-    }
     err = avformat_open_input(&ic, is->filename, is->iformat, &ffp->format_opts);
     if (err < 0) {
         print_error(is->filename, err);
@@ -4002,7 +3994,6 @@ FFPlayer *ffp_create()
 
     av_opt_set_defaults(ffp);
 
-    las_stat_init(&ffp->las_player_statistic);
     return ffp;
 }
 
@@ -4022,7 +4013,6 @@ void ffp_destroy(FFPlayer *ffp)
     ffpipenode_free_p(&ffp->node_vdec);
     ffpipeline_free_p(&ffp->pipeline);
     ijkmeta_destroy_p(&ffp->meta);
-    las_stat_destroy(&ffp->las_player_statistic);
     ffp_reset_internal(ffp);
 
     SDL_DestroyMutexP(&ffp->af_mutex);
@@ -4628,18 +4618,12 @@ void ffp_audio_statistic_l(FFPlayer *ffp)
 {
     VideoState *is = ffp->is;
     ffp_track_statistic_l(ffp, is->audio_st, &is->audioq, &ffp->stat.audio_cache);
-    if (ffp->is_manifest) {
-          las_set_audio_cached_duration_ms(&ffp->las_player_statistic, ffp->stat.audio_cache.duration);
-    }
 }
 
 void ffp_video_statistic_l(FFPlayer *ffp)
 {
     VideoState *is = ffp->is;
     ffp_track_statistic_l(ffp, is->video_st, &is->videoq, &ffp->stat.video_cache);
-    if (ffp->is_manifest) {
-        las_set_video_cached_duration_ms(&ffp->las_player_statistic, ffp->stat.video_cache.duration);
-    }
 }
 
 void ffp_statistic_l(FFPlayer *ffp)
@@ -5052,4 +5036,57 @@ IjkMediaMeta *ffp_get_meta_l(FFPlayer *ffp)
         return NULL;
 
     return ffp->meta;
+}
+
+int bound(int left, int mid, int right){
+    return  mid < left ? left : (mid > right ? right  : mid);
+}
+            
+uint8_t* ffp_get_current_frame_l(FFPlayer *ffp,int * frameWidth, int * frameHeight)
+{
+  VideoState *is = ffp->is;
+  Frame *vp;
+  int i = 0, linesize = 0, pixels = 0;
+  uint8_t *src;
+
+  if (is->pictq.rindex < 0)
+    return NULL;
+  vp = &is->pictq.queue[is->pictq.rindex];
+  if (vp == NULL || vp->bmp == NULL)
+    return NULL;
+  int height = vp->bmp->h;
+  int width = vp->bmp->w;
+    int channel = 4;
+    *frameHeight = height;
+    *frameWidth = width;
+    uint8_t* frame_buf = (uint8_t*)malloc(height*width*channel*4);
+    
+  // copy data to bitmap in java code
+//  linesize = vp->bmp->pitches[0];
+//  src = vp->bmp->pixels[0];
+//  pixels = width * 4;
+//  for (i = 0; i < height; i++) {
+//      memcpy(frame_buf + i * pixels, src + i * linesize, pixels);
+//  }
+    
+    //convert yuv to rgb
+    for(int x=0;x<width;x++)
+    {
+        for(int y=0;y<height;y++)
+        {
+            const int xx = x >> 1;
+            const int yy = y >> 1;
+            const int Y = vp->bmp->pixels[0][y * vp->bmp->pitches[0] + x] - 16;
+            const int U = vp->bmp->pixels[1][yy * vp->bmp->pitches[1] + xx] - 128;
+            const int V = vp->bmp->pixels[2][yy * vp->bmp->pitches[2] + xx] - 128;
+            const int r = bound(0, (298 * Y + 409 * V + 128) >> 8, 255);
+            const int g = bound(0, (298 * Y - 100 * U - 208 * V + 128) >> 8, 255);
+            const int b = bound(0, (298 * Y + 516 * U + 128) >> 8, 255);
+            
+            frame_buf[y*width*channel + x*channel + 1] = r;
+            frame_buf[y*width*channel + x*channel+2] = g;
+            frame_buf[y*width*channel + x*channel + 3] = b;
+        }
+    }
+    return frame_buf;
 }
