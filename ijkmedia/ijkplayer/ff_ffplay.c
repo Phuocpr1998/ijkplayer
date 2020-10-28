@@ -3551,15 +3551,16 @@ static int read_thread(void *arg)
             av_log(NULL, AV_LOG_INFO, "is->audio_stream = %d\n", is->audio_stream);
             ffp->countFindAudioStream--;
 #endif
+        } else if (ffp->audio_disable && is->audio_stream >= 0) {
+            stream_component_close(ffp, is->audio_stream);
         }
 
-        if (!ffp->video_disable && is->video_stream < 0) {
+        if (is->video_stream < 0 && !ffp->video_disable) {
             av_log(NULL, AV_LOG_INFO, "is->video_stream = %d\n", is->video_stream);
 #if 1
             int video_stream_idx = av_find_best_stream(ic, AVMEDIA_TYPE_VIDEO,
                                                            st_index[AVMEDIA_TYPE_VIDEO],
-                                                           st_index[AVMEDIA_TYPE_AUDIO],
-                                                           NULL, 0);
+                                                           -1, NULL, 0);
             if (video_stream_idx >= 0){
                 // refine video
                 av_log(NULL, AV_LOG_WARNING, "Video finded\n");
@@ -3614,7 +3615,7 @@ static int read_thread(void *arg)
                 SDL_Delay(100);
             }
             SDL_LockMutex(wait_mutex);
-            SDL_CondWaitTimeout(is->continue_read_thread, wait_mutex, 10);
+            SDL_CondWaitTimeout(is->continue_read_thread, wait_mutex, 5);
             SDL_UnlockMutex(wait_mutex);
             ffp_statistic_l(ffp);
             continue;
@@ -4897,12 +4898,14 @@ int ffp_set_stream_selected(FFPlayer *ffp, int stream, int selected)
         return -1;
 
     if (stream < 0 || stream >= ic->nb_streams) {
-        if (stream == -2511) { // trick disable audio after init audio stream
+        if (stream == -2511) { // trick disable/enable audio after init audio stream
+            av_log(ffp, AV_LOG_ERROR, "Trigger magic number %d %d %d\n", stream, selected, is->audio_stream);
             ffp->audio_disable = !selected;
             if (!ffp->audio_disable) {
-                ffp->countFindAudioStream = 100;
-            }
-            av_log(ffp, AV_LOG_INFO, "Trigger magic number %d\n", stream);
+                ffp->countFindAudioStream = 300;
+            } else if (is->audio_stream >= 0)
+                stream_component_close(ffp, is->audio_stream);
+            return 0;
         } else {
             av_log(ffp, AV_LOG_ERROR, "invalid stream index %d >= stream number (%d)\n", stream, ic->nb_streams);
         }
@@ -4929,10 +4932,7 @@ int ffp_set_stream_selected(FFPlayer *ffp, int stream, int selected)
                 av_log(ffp, AV_LOG_ERROR, "select invalid stream %d of video type %d\n", stream, codecpar->codec_type);
                 return -1;
         }
-        // hotfix mute unmute audio
-        int ret = stream_component_open(ffp, stream);
-        ffp->audio_disable = false;
-        return ret;
+        return stream_component_open(ffp, stream);
     } else {
         switch (codecpar->codec_type) {
             case AVMEDIA_TYPE_VIDEO:
@@ -4940,8 +4940,6 @@ int ffp_set_stream_selected(FFPlayer *ffp, int stream, int selected)
                     stream_component_close(ffp, is->video_stream);
                 break;
             case AVMEDIA_TYPE_AUDIO:
-                // hotfix mute unmute audio
-                ffp->audio_disable = true;
                 if (stream == is->audio_stream)
                     stream_component_close(ffp, is->audio_stream);
                 break;
