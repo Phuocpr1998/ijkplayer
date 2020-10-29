@@ -1371,7 +1371,7 @@ retry:
             if (!isnan(vp->pts)) {
                 update_video_pts(is, ffp_get_frame_pts(vp, is->speed), vp->pos, vp->serial);
                 // Update position
-                if (vp->frame != NULL && vp->frame->pts > 0) {
+                if (is->start_get_position > 0 && vp->frame != NULL && vp->frame->pts > 0) {
                     AVRational q;
                     q.num = 1;
                     q.den = AV_TIME_BASE;
@@ -3636,7 +3636,7 @@ static int read_thread(void *arg)
                 SDL_Delay(100);
             }
             SDL_LockMutex(wait_mutex);
-            SDL_CondWaitTimeout(is->continue_read_thread, wait_mutex, 5);
+            SDL_CondWaitTimeout(is->continue_read_thread, wait_mutex, 10);
             SDL_UnlockMutex(wait_mutex);
             ffp_statistic_l(ffp);
             continue;
@@ -3803,6 +3803,7 @@ static VideoState *stream_open(FFPlayer *ffp, const char *filename, AVInputForma
     }
     is->initialized_decoder = 1;
     is->speed = 1.0; // init speed
+    is->start_get_position = -1;
     ffp->countFindAudioStream = 100; // init count Find Audio Stream
     return is;
 fail:
@@ -4502,6 +4503,7 @@ long ffp_get_current_position_l(FFPlayer *ffp)
     VideoState *is = ffp->is;
     if (!is || !is->ic)
         return 0;
+    is->start_get_position = 1;
     return is->position;
 
     // int64_t start_time = is->ic->start_time;

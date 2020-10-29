@@ -435,6 +435,7 @@ typedef struct VideoState {
 
     float speed;
     int64_t position;
+    int start_get_position;
 } VideoState;
 
 /* options specified by the user */
