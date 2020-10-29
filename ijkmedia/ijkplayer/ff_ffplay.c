@@ -1371,16 +1371,13 @@ retry:
             if (!isnan(vp->pts)) {
                 update_video_pts(is, ffp_get_frame_pts(vp, is->speed), vp->pos, vp->serial);
                 // TODO: update time
-                // if (vp->frame != NULL && vp->frame->pts > 0) {
-                //     AVRational q;
-                //     q.num = 1;
-                //     q.den = AV_TIME_BASE;
-                //     int64_t ts_rescale = av_rescale_q(vp->frame->pts, is->video_st->time_base, q);
-                //     is->position = ts_rescale - is->ic->start_time;
-                //     av_log(NULL, AV_LOG_ERROR, "FUCKKK NUMBER %lld\n", is->position);
-                // } else {
-                //     av_log(NULL, AV_LOG_ERROR, "FUCKKK NUMBER PTS %lld\n", vp->frame->pts);
-                // }                       
+                if (vp->frame != NULL && vp->frame->pts > 0) {
+                    AVRational q;
+                    q.num = 1;
+                    q.den = AV_TIME_BASE;
+                    int64_t ts_rescale = av_rescale_q(vp->frame->pts, is->video_st->time_base, q);
+                    is->position = ts_rescale - is->ic->start_time;
+                }                       
             }
             SDL_UnlockMutex(is->pictq.mutex);
 
@@ -1691,6 +1688,10 @@ static int queue_picture(FFPlayer *ffp, AVFrame *src_frame, double pts, double d
 #ifdef FFP_MERGE
         av_frame_move_ref(vp->frame, src_frame);
 #endif
+        if (vp->frame != NULL && src_frame != NULL) {
+            vp->frame->pts = src_frame->pts;
+            vp->frame->pkt_pts = src_frame->pkt_pts;
+        }
         frame_queue_push(&is->pictq);
         if (!is->viddec.first_frame_decoded) {
             ALOGD("Video: first frame decoded\n");
@@ -3171,6 +3172,14 @@ static int read_thread(void *arg)
 
     if (ffp->genpts)
         ic->flags |= AVFMT_FLAG_GENPTS;
+    if (is->realtime) {
+        ic->flags |= AVFMT_FLAG_DISCARD_CORRUPT;
+        ic->flags |= AVFMT_FLAG_NOBUFFER;
+        ic->flags |= AVFMT_FLAG_FLUSH_PACKETS;
+    }else {
+        ic->flags |= AVFMT_FLAG_DISCARD_CORRUPT;
+        ic->flags |= AVFMT_FLAG_FAST_SEEK;
+    }
 
     av_format_inject_global_side_data(ic);
     //
@@ -4493,34 +4502,34 @@ long ffp_get_current_position_l(FFPlayer *ffp)
     VideoState *is = ffp->is;
     if (!is || !is->ic)
         return 0;
-    // return is->position;
+    return is->position;
 
-    int64_t start_time = is->ic->start_time;
-    int64_t start_diff = 0;
-    if (start_time > 0 && start_time != AV_NOPTS_VALUE)
-        start_diff = fftime_to_milliseconds(start_time);
+    // int64_t start_time = is->ic->start_time;
+    // int64_t start_diff = 0;
+    // if (start_time > 0 && start_time != AV_NOPTS_VALUE)
+    //     start_diff = fftime_to_milliseconds(start_time);
 
-    int64_t pos = 0;
-    double pos_clock = get_master_clock(is);
-    if (isnan(pos_clock)) {
-        pos = fftime_to_milliseconds(is->seek_pos);
-    } else {
-        pos = pos_clock * 1000;
-    }
+    // int64_t pos = 0;
+    // double pos_clock = get_master_clock(is);
+    // if (isnan(pos_clock)) {
+    //     pos = fftime_to_milliseconds(is->seek_pos);
+    // } else {
+    //     pos = pos_clock * 1000;
+    // }
 
-    // If using REAL time and not ajusted, then return the real pos as calculated from the stream
-    // the use case for this is primarily when using a custom non-seekable data source that starts
-    // with a buffer that is NOT the start of the stream.  We want the get_current_position to
-    // return the time in the stream, and not the player's internal clock.
-    if (ffp->no_time_adjust) {
-        return (long)pos;
-    }
+    // // If using REAL time and not ajusted, then return the real pos as calculated from the stream
+    // // the use case for this is primarily when using a custom non-seekable data source that starts
+    // // with a buffer that is NOT the start of the stream.  We want the get_current_position to
+    // // return the time in the stream, and not the player's internal clock.
+    // if (ffp->no_time_adjust) {
+    //     return (long)pos;
+    // }
 
-    if (pos < 0 || pos < start_diff)
-        return 0;
+    // if (pos < 0 || pos < start_diff)
+    //     return 0;
 
-    int64_t adjust_pos = pos - start_diff;
-    return (long)adjust_pos;
+    // int64_t adjust_pos = pos - start_diff;
+    // return (long)adjust_pos;
 }
 
 long ffp_get_duration_l(FFPlayer *ffp)
