@@ -234,6 +234,14 @@ typedef struct Frame {
     int uploaded;
 } Frame;
 
+inline static double ffp_get_frame_pts(Frame *frame, float speed)
+{
+    if (speed == 0) {
+        return frame->pts;
+    }
+    return frame->pts / (double)speed;
+}
+
 typedef struct FrameQueue {
     Frame queue[FRAME_QUEUE_SIZE];
     int rindex;
@@ -246,6 +254,7 @@ typedef struct FrameQueue {
     SDL_cond *cond;
     PacketQueue *pktq;
 } FrameQueue;
+
 
 enum {
     AV_SYNC_AUDIO_MASTER, /* default choice */
@@ -423,6 +432,9 @@ typedef struct VideoState {
     SDL_cond  *audio_accurate_seek_cond;
     volatile int initialized_decoder;
     int seek_buffering;
+
+    float speed;
+    int64_t position;
 } VideoState;
 
 /* options specified by the user */
