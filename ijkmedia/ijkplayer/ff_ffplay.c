@@ -1370,7 +1370,7 @@ retry:
             SDL_LockMutex(is->pictq.mutex);
             if (!isnan(vp->pts)) {
                 update_video_pts(is, ffp_get_frame_pts(vp, is->speed), vp->pos, vp->serial);
-                // TODO: update time
+                // Update position
                 if (vp->frame != NULL && vp->frame->pts > 0) {
                     AVRational q;
                     q.num = 1;
