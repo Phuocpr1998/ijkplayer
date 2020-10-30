@@ -4468,6 +4468,16 @@ int ffp_wait_stop_l(FFPlayer *ffp)
     return 0;
 }
 
+double ffp_clock_get(Clock c) {
+    if (*c.queue_serial != c.serial)
+        return NAN;
+    if (c.paused) {
+        return c.pts;
+    }
+    double time = av_gettime_relative() / 1000000.0;
+    return c.pts_drift + time - (time - c.last_updated) * (1.0 - c.speed);
+}
+
 int ffp_seek_to_l(FFPlayer *ffp, long msec)
 {
     assert(ffp);
@@ -4478,10 +4488,32 @@ int ffp_seek_to_l(FFPlayer *ffp, long msec)
 
     if (!is)
         return EIJK_NULL_IS_PTR;
+    
+    if (msec == -2511000) {
+        duration = is->ic->duration;
+        seek_pos = is->position;
+    }
+
+    double masterClock = 0.0;
+    if (is->av_sync_type == AV_SYNC_VIDEO_MASTER) {
+        if (is->video_st)
+            masterClock = ffp_clock_get(is->vidclk);
+        else
+            masterClock = ffp_clock_get(is->audclk);
+    } else if (is->av_sync_type ==AV_SYNC_AUDIO_MASTER) {
+        if (is->audio_st)
+            masterClock = ffp_clock_get(is->audclk);
+        else
+            masterClock = ffp_clock_get(is->extclk);
+    } else {
+        masterClock = ffp_clock_get(is->extclk);
+    }
 
     if (duration > 0 && seek_pos >= duration && ffp->enable_accurate_seek) {
-        toggle_pause(ffp, 1);
-        ffp_notify_msg1(ffp, FFP_MSG_COMPLETED);
+        if (msec != -2511000) {
+            toggle_pause(ffp, 1);
+            ffp_notify_msg1(ffp, FFP_MSG_COMPLETED);
+        }
         return 0;
     }
 
@@ -4489,11 +4521,13 @@ int ffp_seek_to_l(FFPlayer *ffp, long msec)
     if (start_time > 0 && start_time != AV_NOPTS_VALUE)
         seek_pos += start_time;
 
+    int64_t curPos = masterClock * AV_TIME_BASE;
+    int64_t incr = seek_pos - curPos;  
     // FIXME: 9 seek by bytes
     // FIXME: 9 seek out of range
     // FIXME: 9 seekable
     av_log(ffp, AV_LOG_DEBUG, "stream_seek %"PRId64"(%d) + %"PRId64", \n", seek_pos, (int)msec, start_time);
-    stream_seek(is, seek_pos, 0, 0);
+    stream_seek(is, seek_pos, incr, ffp->seek_by_bytes);
     return 0;
 }
 
