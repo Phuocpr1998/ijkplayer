@@ -4490,6 +4490,11 @@ int ffp_seek_to_l(FFPlayer *ffp, long msec)
         return EIJK_NULL_IS_PTR;
     
     if (msec == -2511000) {
+        av_log(ffp, AV_LOG_ERROR, "Trigger seek magic number %lld\n", msec);
+        if (is->audio_stream < 0) {
+            // skip seek video with no audio
+            return 0;
+        }
         duration = is->ic->duration;
         seek_pos = is->position;
     }
