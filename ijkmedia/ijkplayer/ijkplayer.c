@@ -580,8 +580,10 @@ int ijkmp_seek_to_l(IjkMediaPlayer *mp, long msec)
 
     MP_RET_IF_FAILED(ikjmp_chkst_seek_l(mp->mp_state));
 
-    mp->seek_req = 1;
-    mp->seek_msec = msec;
+    if (msec != -2511000) {
+        mp->seek_req = 1;
+        mp->seek_msec = msec;
+    }
     ffp_remove_msg(mp->ffplayer, FFP_REQ_SEEK);
     ffp_notify_msg2(mp->ffplayer, FFP_REQ_SEEK, (int)msec);
     // TODO: 9 64-bit long?
