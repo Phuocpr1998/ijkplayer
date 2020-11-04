@@ -350,10 +350,12 @@ typedef NS_ENUM(NSInteger, IJKSDLGLViewApplicationState) {
 
     _tryLockErrorCount = 0;
     if (_context && !_didStopGL) {
-        EAGLContext *prevContext = [EAGLContext currentContext];
-        [EAGLContext setCurrentContext:_context];
-        [self displayInternal:overlay];
-        [EAGLContext setCurrentContext:prevContext];
+        dispatch_async(dispatch_get_main_queue(), ^{
+            EAGLContext *prevContext = [EAGLContext currentContext];
+            [EAGLContext setCurrentContext:_context];
+            [self displayInternal:overlay];
+            [EAGLContext setCurrentContext:prevContext];
+        });
     }
 
     [self unlockGLActive];

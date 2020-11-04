@@ -797,16 +797,28 @@ int ijkmp_get_msg(IjkMediaPlayer *mp, AVMessage *msg, int block)
     return -1;
 }
 
-static uint8_t * ijkmp_get_current_frame_l(IjkMediaPlayer *mp, int* frameWidth, int* frameHeight)
-{
-  return ffp_get_current_frame_l(mp->ffplayer, frameWidth, frameHeight);
+
+static void ijkmp_get_current_frame_l(IjkMediaPlayer *mp, uint8_t *frame_buf)	
+{	
+  ffp_get_current_frame_l(mp->ffplayer, frame_buf);	
+}	
+
+void ijkmp_get_current_frame(IjkMediaPlayer *mp, uint8_t *frame_buf)	
+{	
+  assert(mp);	
+  pthread_mutex_lock(&mp->mutex);	
+  ijkmp_get_current_frame_l(mp, frame_buf);	
+  pthread_mutex_unlock(&mp->mutex);	
 }
 
-uint8_t * ijkmp_get_current_frame(IjkMediaPlayer *mp, int* frameWidth, int* frameHeight)
-{
-  assert(mp);
-  pthread_mutex_lock(&mp->mutex);
-  uint8_t *frame_buf = ijkmp_get_current_frame_l(mp, frameWidth, frameHeight);
-  pthread_mutex_unlock(&mp->mutex);
-return frame_buf;
+uint8_t * ijkmp_get_video_frame(IjkMediaPlayer *mp, int* frameWidth, int* frameHeight){
+    return ffp_get_video_frame_l(mp->ffplayer, frameWidth, frameHeight);
+}
+static uint8_t * ijkmp_get_video_frame_l(IjkMediaPlayer *mp, int* frameWidth, int* frameHeight){
+      assert(mp);
+      pthread_mutex_lock(&mp->mutex);
+      uint8_t *frame_buf = ijkmp_get_video_frame(mp, frameWidth, frameHeight);
+      pthread_mutex_unlock(&mp->mutex);
+    return frame_buf;
+    
 }

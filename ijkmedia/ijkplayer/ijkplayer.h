@@ -217,6 +217,10 @@ void           *ijkmp_set_weak_thiz(IjkMediaPlayer *mp, void *weak_thiz);
 /* need to call msg_free_res for freeing the resouce obtained in msg */
 int             ijkmp_get_msg(IjkMediaPlayer *mp, AVMessage *msg, int block);
 void            ijkmp_set_frame_at_time(IjkMediaPlayer *mp, const char *path, int64_t start_time, int64_t end_time, int num, int definition);
-uint8_t * ijkmp_get_current_frame(IjkMediaPlayer *mp, int* frameWidth, int* frameHeight);
-static uint8_t * ijkmp_get_current_frame_l(IjkMediaPlayer *mp, int* frameWidth, int* frameHeight);
+void            ijkmp_get_current_frame(IjkMediaPlayer *mp, uint8_t *frame_buf);
+static void     ijkmp_get_current_frame_l(IjkMediaPlayer *mp, uint8_t *frame_buf);
+
+uint8_t * ijkmp_get_video_frame(IjkMediaPlayer *mp, int* frameWidth, int* frameHeight);
+static uint8_t * ijkmp_get_video_frame_l(IjkMediaPlayer *mp, int* frameWidth, int* frameHeight);
+
 #endif

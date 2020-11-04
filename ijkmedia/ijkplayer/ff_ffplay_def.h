@@ -125,6 +125,11 @@
 /* polls for possible required screen refresh at least this often, should be less than 1/fps */
 #define REFRESH_RATE 0.01
 
+/* video track only situation, speed could be greater than 2.0 its depends on decoder capability */
+/* if speed > 2.0, vout polling rate should less than 10ms for prevent missing the vsync */
+#define VIDEO_ONLY_FAST_POLLING_RATE 0.001
+#define ADJUST_POLLING_RATE_THRESHOLD 2.0
+
 /* NOTE: the size must be big enough to compensate the hardware audio buffersize size */
 /* TODO: We assume that a decoded and resampled frame fits into this buffer */
 #define SAMPLE_ARRAY_SIZE (8 * 65536)
@@ -229,6 +234,14 @@ typedef struct Frame {
     int uploaded;
 } Frame;
 
+inline static double ffp_get_frame_pts(Frame *frame, float speed)
+{
+    if (speed == 0) {
+        return frame->pts;
+    }
+    return frame->pts / (double)speed;
+}
+
 typedef struct FrameQueue {
     Frame queue[FRAME_QUEUE_SIZE];
     int rindex;
@@ -241,6 +254,7 @@ typedef struct FrameQueue {
     SDL_cond *cond;
     PacketQueue *pktq;
 } FrameQueue;
+
 
 enum {
     AV_SYNC_AUDIO_MASTER, /* default choice */
@@ -418,6 +432,9 @@ typedef struct VideoState {
     SDL_cond  *audio_accurate_seek_cond;
     volatile int initialized_decoder;
     int seek_buffering;
+
+    float speed;
+    int64_t position;
 } VideoState;
 
 /* options specified by the user */
@@ -720,6 +737,8 @@ typedef struct FFPlayer {
     char *mediacodec_default_name;
     int ijkmeta_delay_init;
     int render_wait_start;
+    
+    int countFindAudioStream;
 } FFPlayer;
 
 #define fftime_to_milliseconds(ts) (av_rescale(ts, 1000, AV_TIME_BASE))

@@ -882,7 +882,7 @@ static void video_image_display2(FFPlayer *ffp)
             if (frame_queue_nb_remaining(&is->subpq) > 0) {
                 sp = frame_queue_peek(&is->subpq);
 
-                if (vp->pts >= sp->pts + ((float) sp->sub.start_display_time / 1000)) {
+                if (ffp_get_frame_pts(vp, is->speed) >= ffp_get_frame_pts(sp, is->speed) + ((float) sp->sub.start_display_time / 1000)) {
                     if (!sp->uploaded) {
                         if (sp->sub.num_rects > 0) {
                             char buffered_text[4096];
@@ -1286,7 +1286,7 @@ static double compute_target_delay(FFPlayer *ffp, double delay, VideoState *is)
 
 static double vp_duration(VideoState *is, Frame *vp, Frame *nextvp) {
     if (vp->serial == nextvp->serial) {
-        double duration = nextvp->pts - vp->pts;
+        double duration = ffp_get_frame_pts(nextvp, is->speed) - ffp_get_frame_pts(vp, is->speed);
         if (isnan(duration) || duration <= 0 || duration > is->max_frame_duration)
             return vp->duration;
         else
@@ -1321,6 +1321,11 @@ static void video_refresh(FFPlayer *opaque, double *remaining_time)
             is->last_vis_time = time;
         }
         *remaining_time = FFMIN(*remaining_time, is->last_vis_time + ffp->rdftspeed - time);
+    }
+
+    if (ffp->pf_playback_rate > ADJUST_POLLING_RATE_THRESHOLD &&
+        !is->audio_st) {
+        *remaining_time = VIDEO_ONLY_FAST_POLLING_RATE;
     }
 
     if (is->video_st) {
@@ -1363,8 +1368,17 @@ retry:
                 is->frame_timer = time;
 
             SDL_LockMutex(is->pictq.mutex);
-            if (!isnan(vp->pts))
-                update_video_pts(is, vp->pts, vp->pos, vp->serial);
+            if (!isnan(vp->pts)) {
+                update_video_pts(is, ffp_get_frame_pts(vp, is->speed), vp->pos, vp->serial);
+                // Update position
+                if (vp->frame != NULL && vp->frame->pts > 0) {
+                    AVRational q;
+                    q.num = 1;
+                    q.den = AV_TIME_BASE;
+                    int64_t ts_rescale = av_rescale_q(vp->frame->pts, is->video_st->time_base, q);
+                    is->position = ts_rescale - is->ic->start_time;
+                }                       
+            }
             SDL_UnlockMutex(is->pictq.mutex);
 
             if (frame_queue_nb_remaining(&is->pictq) > 1) {
@@ -1386,8 +1400,8 @@ retry:
                         sp2 = NULL;
 
                     if (sp->serial != is->subtitleq.serial
-                            || (is->vidclk.pts > (sp->pts + ((float) sp->sub.end_display_time / 1000)))
-                            || (sp2 && is->vidclk.pts > (sp2->pts + ((float) sp2->sub.start_display_time / 1000))))
+                            || (is->vidclk.pts > (ffp_get_frame_pts(sp, is->speed) + ((float) sp->sub.end_display_time / 1000)))
+                            || (sp2 && is->vidclk.pts > (ffp_get_frame_pts(sp2, is->speed) + ((float) sp2->sub.start_display_time / 1000))))
                     {
                         if (sp->uploaded) {
                             ffp_notify_msg4(ffp, FFP_MSG_TIMED_TEXT, 0, 0, "", 1);
@@ -1461,6 +1475,47 @@ display:
     }
 }
 
+int bound(int left, int mid, int right){
+    return  mid < left ? left : (mid > right ? right  : mid);
+}
+
+uint8_t* ffp_get_video_frame_l(FFPlayer *ffp,int * frameWidth, int * frameHeight)
+{
+    VideoState *is = ffp->is;
+    Frame *vp;
+    if (is->pictq.rindex < 0)
+        return NULL;
+    vp = &is->pictq.queue[is->pictq.rindex];
+    if (vp == NULL || vp->bmp == NULL)
+        return NULL;
+    int height = vp->bmp->h;
+    int width = vp->bmp->w;
+    int channel = 4;
+    *frameHeight = height;
+    *frameWidth = width;
+    uint8_t* frame_buf = (uint8_t*)malloc(height*width*channel*4);
+    //convert yuv to rgb
+    for(int x=0;x<width;x++)
+    {
+        for(int y=0;y<height;y++)
+        {
+            const int xx = x >> 1;
+            const int yy = y >> 1;
+            const int Y = vp->bmp->pixels[0][y * vp->bmp->pitches[0] + x] - 16;
+            const int U = vp->bmp->pixels[1][yy * vp->bmp->pitches[1] + xx] - 128;
+            const int V = vp->bmp->pixels[2][yy * vp->bmp->pitches[2] + xx] - 128;
+            
+            const int r = bound(0, (298 * Y + 409 * V + 128) >> 8, 255);
+            const int g = bound(0, (298 * Y - 100 * U - 208 * V + 128) >> 8, 255);
+            const int b = bound(0, (298 * Y + 516 * U + 128) >> 8, 255);
+            
+            frame_buf[y*width*channel + x*channel + 1] = r;
+            frame_buf[y*width*channel + x*channel+2] = g;
+            frame_buf[y*width*channel + x*channel + 3] = b;
+        }
+    }
+    return frame_buf;
+}
 /* allocate a picture (needs to do that in main thread to avoid
    potential locking problems */
 static void alloc_picture(FFPlayer *ffp, int frame_format)
@@ -1674,6 +1729,10 @@ static int queue_picture(FFPlayer *ffp, AVFrame *src_frame, double pts, double d
 #ifdef FFP_MERGE
         av_frame_move_ref(vp->frame, src_frame);
 #endif
+        if (vp->frame != NULL && src_frame != NULL) {
+            vp->frame->pts = src_frame->pts;
+            vp->frame->pkt_pts = src_frame->pkt_pts;
+        }
         frame_queue_push(&is->pictq);
         if (!is->viddec.first_frame_decoded) {
             ALOGD("Video: first frame decoded\n");
@@ -2605,7 +2664,7 @@ reload:
     audio_clock0 = is->audio_clock;
     /* update the audio clock with the pts */
     if (!isnan(af->pts))
-        is->audio_clock = af->pts + (double) af->frame->nb_samples / af->frame->sample_rate;
+        is->audio_clock = ffp_get_frame_pts(af, is->speed) + (double) af->frame->nb_samples / af->frame->sample_rate;
     else
         is->audio_clock = NAN;
     is->audio_clock_serial = af->serial;
@@ -3057,6 +3116,22 @@ static int is_realtime(AVFormatContext *s)
     return 0;
 }
 
+//static int refind audio/video stream
+static int refind_stream(FFPlayer *ffp, AVFormatContext *ic, int stream_index, const char * key_stream) {
+    /* open the streams */
+    if (stream_index >= 0) {
+#warning check
+        stream_component_open(ffp, stream_index);
+        av_log(NULL, AV_LOG_INFO, "open stream\n");
+    }
+    ijkmeta_set_avformat_context_l(ffp->meta, ic);
+    if (stream_index >= 0){
+        ijkmeta_set_int64_l(ffp->meta, key_stream, stream_index);
+        av_log(NULL, AV_LOG_INFO, "init stream\n");
+    }
+    return 0;
+}
+
 /* this thread gets the stream from the disk or the network */
 static int read_thread(void *arg)
 {
@@ -3138,6 +3213,14 @@ static int read_thread(void *arg)
 
     if (ffp->genpts)
         ic->flags |= AVFMT_FLAG_GENPTS;
+    if (is->realtime) {
+        ic->flags |= AVFMT_FLAG_DISCARD_CORRUPT;
+        ic->flags |= AVFMT_FLAG_NOBUFFER;
+        ic->flags |= AVFMT_FLAG_FLUSH_PACKETS;
+    }else {
+        ic->flags |= AVFMT_FLAG_DISCARD_CORRUPT;
+        ic->flags |= AVFMT_FLAG_FAST_SEEK;
+    }
 
     av_format_inject_global_side_data(ic);
     //
@@ -3272,7 +3355,8 @@ static int read_thread(void *arg)
     /* open the streams */
     if (st_index[AVMEDIA_TYPE_AUDIO] >= 0) {
         stream_component_open(ffp, st_index[AVMEDIA_TYPE_AUDIO]);
-    } else {
+    }
+    else {
         ffp->av_sync_type = AV_SYNC_VIDEO_MASTER;
         is->av_sync_type  = ffp->av_sync_type;
     }
@@ -3513,6 +3597,41 @@ static int read_thread(void *arg)
         }
         pkt->flags = 0;
         ret = av_read_frame(ic, pkt);
+
+        if (!ffp->audio_disable && is->audio_stream < 0 && ffp->countFindAudioStream > 0) {
+            av_log(NULL, AV_LOG_INFO, "is->audio_stream = %d\n", is->audio_stream);
+#if 1
+            int audio_stream_idx = av_find_best_stream(ic, AVMEDIA_TYPE_AUDIO,
+                                                           st_index[AVMEDIA_TYPE_AUDIO],
+                                                           st_index[AVMEDIA_TYPE_VIDEO],
+                                                           NULL, 0);
+            if (audio_stream_idx >= 0){
+                // refine audio
+                av_log(NULL, AV_LOG_WARNING, "Audio finded\n");
+                refind_stream(ffp, ic, audio_stream_idx, IJKM_KEY_AUDIO_STREAM);
+            }
+            av_log(NULL, AV_LOG_INFO, "is->audio_stream = %d\n", is->audio_stream);
+            ffp->countFindAudioStream--;
+#endif
+        } else if (ffp->audio_disable && is->audio_stream >= 0) {
+            stream_component_close(ffp, is->audio_stream);
+        }
+
+        if (is->video_stream < 0 && !ffp->video_disable) {
+            av_log(NULL, AV_LOG_INFO, "is->video_stream = %d\n", is->video_stream);
+#if 1
+            int video_stream_idx = av_find_best_stream(ic, AVMEDIA_TYPE_VIDEO,
+                                                           st_index[AVMEDIA_TYPE_VIDEO],
+                                                           -1, NULL, 0);
+            if (video_stream_idx >= 0){
+                // refine video
+                av_log(NULL, AV_LOG_WARNING, "Video finded\n");
+                refind_stream(ffp, ic, video_stream_idx, IJKM_KEY_VIDEO_STREAM);
+            }
+            av_log(NULL, AV_LOG_INFO, "is->video_stream = %d\n", is->video_stream);
+#endif
+        }
+
         if (ret < 0) {
             int pb_eof = 0;
             int pb_error = 0;
@@ -3558,7 +3677,7 @@ static int read_thread(void *arg)
                 SDL_Delay(100);
             }
             SDL_LockMutex(wait_mutex);
-            SDL_CondWaitTimeout(is->continue_read_thread, wait_mutex, 10);
+            SDL_CondWaitTimeout(is->continue_read_thread, wait_mutex, 5);
             SDL_UnlockMutex(wait_mutex);
             ffp_statistic_l(ffp);
             continue;
@@ -3724,7 +3843,8 @@ static VideoState *stream_open(FFPlayer *ffp, const char *filename, AVInputForma
         }
     }
     is->initialized_decoder = 1;
-
+    is->speed = 1.0; // init speed
+    ffp->countFindAudioStream = 100; // init count Find Audio Stream
     return is;
 fail:
     is->initialized_decoder = 1;
@@ -4423,33 +4543,34 @@ long ffp_get_current_position_l(FFPlayer *ffp)
     VideoState *is = ffp->is;
     if (!is || !is->ic)
         return 0;
+    return is->position;
 
-    int64_t start_time = is->ic->start_time;
-    int64_t start_diff = 0;
-    if (start_time > 0 && start_time != AV_NOPTS_VALUE)
-        start_diff = fftime_to_milliseconds(start_time);
+    // int64_t start_time = is->ic->start_time;
+    // int64_t start_diff = 0;
+    // if (start_time > 0 && start_time != AV_NOPTS_VALUE)
+    //     start_diff = fftime_to_milliseconds(start_time);
 
-    int64_t pos = 0;
-    double pos_clock = get_master_clock(is);
-    if (isnan(pos_clock)) {
-        pos = fftime_to_milliseconds(is->seek_pos);
-    } else {
-        pos = pos_clock * 1000;
-    }
+    // int64_t pos = 0;
+    // double pos_clock = get_master_clock(is);
+    // if (isnan(pos_clock)) {
+    //     pos = fftime_to_milliseconds(is->seek_pos);
+    // } else {
+    //     pos = pos_clock * 1000;
+    // }
 
-    // If using REAL time and not ajusted, then return the real pos as calculated from the stream
-    // the use case for this is primarily when using a custom non-seekable data source that starts
-    // with a buffer that is NOT the start of the stream.  We want the get_current_position to
-    // return the time in the stream, and not the player's internal clock.
-    if (ffp->no_time_adjust) {
-        return (long)pos;
-    }
+    // // If using REAL time and not ajusted, then return the real pos as calculated from the stream
+    // // the use case for this is primarily when using a custom non-seekable data source that starts
+    // // with a buffer that is NOT the start of the stream.  We want the get_current_position to
+    // // return the time in the stream, and not the player's internal clock.
+    // if (ffp->no_time_adjust) {
+    //     return (long)pos;
+    // }
 
-    if (pos < 0 || pos < start_diff)
-        return 0;
+    // if (pos < 0 || pos < start_diff)
+    //     return 0;
 
-    int64_t adjust_pos = pos - start_diff;
-    return (long)adjust_pos;
+    // int64_t adjust_pos = pos - start_diff;
+    // return (long)adjust_pos;
 }
 
 long ffp_get_duration_l(FFPlayer *ffp)
@@ -4786,6 +4907,23 @@ void ffp_set_playback_rate(FFPlayer *ffp, float rate)
     av_log(ffp, AV_LOG_INFO, "Playback rate: %f\n", rate);
     ffp->pf_playback_rate = rate;
     ffp->pf_playback_rate_changed = 1;
+    
+    if (ffp->is != NULL && ffp->is->audio_stream < 0) {
+        // if non audio track be selectd, default sync clock is external clock.
+        // BTW: if choose video master sync type, non clock sync, video freerun.
+        // ergo, setclockspeed is noneffective for this situation.
+        av_log(ffp, AV_LOG_INFO, "didn't select an audio track, setclock speed instead");
+        set_clock_speed(&ffp->is->extclk, (double)rate);
+    }
+}
+
+void ffp_set_speed(FFPlayer *ffp, float speed) {
+    if (!ffp || speed == 0.0)
+        return;
+    av_log(ffp, AV_LOG_ERROR, "ffp set speed: %f\n", speed);
+    if (ffp->is != NULL) {
+        ffp->is->speed = (double)speed;
+    }
 }
 
 void ffp_set_playback_volume(FFPlayer *ffp, float volume)
@@ -4833,7 +4971,17 @@ int ffp_set_stream_selected(FFPlayer *ffp, int stream, int selected)
         return -1;
 
     if (stream < 0 || stream >= ic->nb_streams) {
-        av_log(ffp, AV_LOG_ERROR, "invalid stream index %d >= stream number (%d)\n", stream, ic->nb_streams);
+        if (stream == -2511) { // trick disable/enable audio after init audio stream
+            av_log(ffp, AV_LOG_ERROR, "Trigger magic number %d %d %d\n", stream, selected, is->audio_stream);
+            ffp->audio_disable = !selected;
+            if (!ffp->audio_disable) {
+                ffp->countFindAudioStream = 300;
+            } else if (is->audio_stream >= 0)
+                stream_component_close(ffp, is->audio_stream);
+            return 0;
+        } else {
+            av_log(ffp, AV_LOG_ERROR, "invalid stream index %d >= stream number (%d)\n", stream, ic->nb_streams);
+        }
         return -1;
     }
 
@@ -4889,6 +5037,8 @@ float ffp_get_property_float(FFPlayer *ffp, int id, float default_value)
             return ffp ? ffp->stat.vfps : default_value;
         case FFP_PROP_FLOAT_PLAYBACK_RATE:
             return ffp ? ffp->pf_playback_rate : default_value;
+        case FFP_PROP_FLOAT_PLAYBACK_SPEED:
+            return ffp ? ffp->is->speed : default_value;
         case FFP_PROP_FLOAT_AVDELAY:
             return ffp ? ffp->stat.avdelay : default_value;
         case FFP_PROP_FLOAT_AVDIFF:
@@ -4907,6 +5057,9 @@ void ffp_set_property_float(FFPlayer *ffp, int id, float value)
     switch (id) {
         case FFP_PROP_FLOAT_PLAYBACK_RATE:
             ffp_set_playback_rate(ffp, value);
+            break;
+        case FFP_PROP_FLOAT_PLAYBACK_SPEED:
+            ffp_set_speed(ffp, value);
             break;
         case FFP_PROP_FLOAT_PLAYBACK_VOLUME:
             ffp_set_playback_volume(ffp, value);
@@ -5037,56 +5190,26 @@ IjkMediaMeta *ffp_get_meta_l(FFPlayer *ffp)
 
     return ffp->meta;
 }
-
-int bound(int left, int mid, int right){
-    return  mid < left ? left : (mid > right ? right  : mid);
-}
-            
-uint8_t* ffp_get_current_frame_l(FFPlayer *ffp,int * frameWidth, int * frameHeight)
+void ffp_get_current_frame_l(FFPlayer *ffp, uint8_t *frame_buf)
 {
-  VideoState *is = ffp->is;
-  Frame *vp;
-  int i = 0, linesize = 0, pixels = 0;
-  uint8_t *src;
-
-  if (is->pictq.rindex < 0)
-    return NULL;
-  vp = &is->pictq.queue[is->pictq.rindex];
-  if (vp == NULL || vp->bmp == NULL)
-    return NULL;
-  int height = vp->bmp->h;
-  int width = vp->bmp->w;
-    int channel = 4;
-    *frameHeight = height;
-    *frameWidth = width;
-    uint8_t* frame_buf = (uint8_t*)malloc(height*width*channel*4);
+    VideoState *is = ffp->is;
+    Frame *vp;
+    int i = 0, linesize = 0, pixels = 0;
+    uint8_t *src;
     
-  // copy data to bitmap in java code
-//  linesize = vp->bmp->pitches[0];
-//  src = vp->bmp->pixels[0];
-//  pixels = width * 4;
-//  for (i = 0; i < height; i++) {
-//      memcpy(frame_buf + i * pixels, src + i * linesize, pixels);
-//  }
-    
-    //convert yuv to rgb
-    for(int x=0;x<width;x++)
-    {
-        for(int y=0;y<height;y++)
-        {
-            const int xx = x >> 1;
-            const int yy = y >> 1;
-            const int Y = vp->bmp->pixels[0][y * vp->bmp->pitches[0] + x] - 16;
-            const int U = vp->bmp->pixels[1][yy * vp->bmp->pitches[1] + xx] - 128;
-            const int V = vp->bmp->pixels[2][yy * vp->bmp->pitches[2] + xx] - 128;
-            const int r = bound(0, (298 * Y + 409 * V + 128) >> 8, 255);
-            const int g = bound(0, (298 * Y - 100 * U - 208 * V + 128) >> 8, 255);
-            const int b = bound(0, (298 * Y + 516 * U + 128) >> 8, 255);
-            
-            frame_buf[y*width*channel + x*channel + 1] = r;
-            frame_buf[y*width*channel + x*channel+2] = g;
-            frame_buf[y*width*channel + x*channel + 3] = b;
-        }
+    if (is->pictq.rindex < 0)
+        return;
+    vp = &is->pictq.queue[is->pictq.rindex];
+    if (vp == NULL || vp->bmp == NULL)
+        return;
+    int height = vp->bmp->h;
+    int width = vp->bmp->w;
+    // copy data to bitmap in java code
+    linesize = vp->bmp->pitches[0];
+    src = vp->bmp->pixels[0];
+    pixels = width * 4;
+    for (i = 0; i < height; i++) {
+        memcpy(frame_buf + i * pixels, src + i * linesize, pixels);
     }
-    return frame_buf;
 }
+
