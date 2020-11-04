@@ -119,5 +119,7 @@ uint8_t* ffp_get_video_frame_l(FFPlayer *ffp,int * frameWidth, int * frameHeight
 
 // must be freed with free();
 struct IjkMediaMeta *ffp_get_meta_l(FFPlayer *ffp);
+void ffp_set_speed(FFPlayer *ffp, float speed);
+double ffp_get_speed(FFPlayer *ffp);
 
 #endif

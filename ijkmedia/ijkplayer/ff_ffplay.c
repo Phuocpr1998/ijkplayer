@@ -1479,6 +1479,25 @@ int bound(int left, int mid, int right){
     return  mid < left ? left : (mid > right ? right  : mid);
 }
 
+void ffp_set_speed(FFPlayer *ffp, float speed) {
+    if (!ffp || speed == 0.0)
+        return;
+    av_log(ffp, AV_LOG_ERROR, "ffp set speed: %f\n", speed);
+    if (ffp->is != NULL) {
+        ffp->is->speed = (double)speed;
+    }
+}
+double ffp_get_speed(FFPlayer *ffp) {
+    if (!ffp)
+        return 1.0;
+    av_log(ffp, AV_LOG_ERROR, "ffp get speed \n");
+    if (ffp->is != NULL) {
+        return ffp->is->speed;
+    }
+    return 1.0;
+}
+
+
 uint8_t* ffp_get_video_frame_l(FFPlayer *ffp,int * frameWidth, int * frameHeight)
 {
     VideoState *is = ffp->is;
@@ -4914,15 +4933,6 @@ void ffp_set_playback_rate(FFPlayer *ffp, float rate)
         // ergo, setclockspeed is noneffective for this situation.
         av_log(ffp, AV_LOG_INFO, "didn't select an audio track, setclock speed instead");
         set_clock_speed(&ffp->is->extclk, (double)rate);
-    }
-}
-
-void ffp_set_speed(FFPlayer *ffp, float speed) {
-    if (!ffp || speed == 0.0)
-        return;
-    av_log(ffp, AV_LOG_ERROR, "ffp set speed: %f\n", speed);
-    if (ffp->is != NULL) {
-        ffp->is->speed = (double)speed;
     }
 }
 

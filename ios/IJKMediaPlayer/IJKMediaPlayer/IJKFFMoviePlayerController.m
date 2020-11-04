@@ -950,7 +950,6 @@ inline static NSString *formatedSpeed(int64_t bytes, int64_t elapsed_milli) {
 {
     if (!_mediaPlayer)
         return;
-
     return ijkmp_set_playback_rate(_mediaPlayer, playbackRate);
 }
 
@@ -997,9 +996,14 @@ inline static NSString *formatedSpeed(int64_t bytes, int64_t elapsed_milli) {
     return ijkmp_get_property_float(_mediaPlayer, FFP_PROP_FLOAT_DROP_FRAME_RATE, 0.0f);
 }
 
-- (uint8_t*)getCurrentFrame:(int*)frameWidth withframeHeight:(int*)frameHeight;
+- (uint8_t*)getCurrentFrame:(int*)frameWidth withframeHeight:(int*)frameHeight
 {
     return ijkmp_get_video_frame(_mediaPlayer, frameWidth, frameHeight);
+}
+
+- (double)getCurrentSpeed
+{
+    return ijkmp_get_speed(_mediaPlayer);
 }
 
 inline static void fillMetaInternal(NSMutableDictionary *meta, IjkMediaMeta *rawMeta, const char *name, NSString *defaultValue)
