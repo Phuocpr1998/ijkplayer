@@ -1497,6 +1497,11 @@ double ffp_get_speed(FFPlayer *ffp) {
     return 1.0;
 }
 
+void ffp_audio_disable(FFPlayer *ffp, bool disabled){
+    if (ffp->is != NULL) {
+        ffp->audio_disable = disabled;
+    }
+}
 
 uint8_t* ffp_get_video_frame_l(FFPlayer *ffp,int * frameWidth, int * frameHeight)
 {

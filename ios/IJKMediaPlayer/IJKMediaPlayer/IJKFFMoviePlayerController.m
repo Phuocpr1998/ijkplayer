@@ -998,12 +998,22 @@ inline static NSString *formatedSpeed(int64_t bytes, int64_t elapsed_milli) {
 
 - (uint8_t*)getCurrentFrame:(int*)frameWidth withframeHeight:(int*)frameHeight
 {
+    if (!_mediaPlayer)
+        return 0;
     return ijkmp_get_video_frame(_mediaPlayer, frameWidth, frameHeight);
 }
 
 - (double)getCurrentSpeed
 {
+    if (!_mediaPlayer)
+        return 1;
     return ijkmp_get_speed(_mediaPlayer);
+}
+
+- (void) disableAudio:(BOOL) disable{
+    if (!_mediaPlayer)
+        return;
+    return ijkmp_audio_disable(_mediaPlayer, disable);
 }
 
 inline static void fillMetaInternal(NSMutableDictionary *meta, IjkMediaMeta *rawMeta, const char *name, NSString *defaultValue)

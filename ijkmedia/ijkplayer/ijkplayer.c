@@ -231,6 +231,14 @@ double ijkmp_get_speed(IjkMediaPlayer *mp)
     return ret;
     
 }
+void ijkmp_audio_disable(IjkMediaPlayer *mp, bool disable){
+    assert(mp);
+    MPTRACE("%s(%d)\n", __func__, disable);
+    pthread_mutex_lock(&mp->mutex);
+    ffp_audio_disable(mp->ffplayer, disable);
+    pthread_mutex_unlock(&mp->mutex);
+    MPTRACE("%s()=void\n", __func__);
+}
 
 void ijkmp_set_playback_volume(IjkMediaPlayer *mp, float volume)
 {

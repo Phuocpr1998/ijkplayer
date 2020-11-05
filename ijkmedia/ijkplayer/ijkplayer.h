@@ -223,5 +223,6 @@ static void     ijkmp_get_current_frame_l(IjkMediaPlayer *mp, uint8_t *frame_buf
 uint8_t * ijkmp_get_video_frame(IjkMediaPlayer *mp, int* frameWidth, int* frameHeight);
 static uint8_t * ijkmp_get_video_frame_l(IjkMediaPlayer *mp, int* frameWidth, int* frameHeight);
 double ijkmp_get_speed(IjkMediaPlayer *mp);
+void ijkmp_audio_disable(IjkMediaPlayer *mp, bool disable);
 
 #endif
