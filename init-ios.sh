@@ -19,7 +19,7 @@
 # IJK_FFMPEG_UPSTREAM=git://git.videolan.org/ffmpeg.git
 IJK_FFMPEG_UPSTREAM=https://github.com/Phuocpr1998/FFmpeg.git
 IJK_FFMPEG_FORK=https://github.com/Phuocpr1998/FFmpeg.git
-IJK_FFMPEG_BRANCH=ff3.4-encrypt-aes
+IJK_FFMPEG_BRANCH=ff4.0-encrypt-aes
 IJK_FFMPEG_LOCAL_REPO=extra/ffmpeg
 
 IJK_GASP_UPSTREAM=https://github.com/Bilibili/gas-preprocessor.git

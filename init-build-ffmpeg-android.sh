@@ -17,9 +17,9 @@
 #
 
 # IJK_FFMPEG_UPSTREAM=git://git.videolan.org/ffmpeg.git
-IJK_FFMPEG_UPSTREAM=https://github.com/Phuocpr1998/FFmpeg.git
-IJK_FFMPEG_FORK=https://github.com/Phuocpr1998/FFmpeg.git
-IJK_FFMPEG_BRANCH=ff4.0-encrypt-aes
+IJK_FFMPEG_UPSTREAM=https://github.com/baohavan/FFmpeg.git
+IJK_FFMPEG_FORK=https://github.com/baohavan/FFmpeg.git
+IJK_FFMPEG_BRANCH=release/4.1
 IJK_FFMPEG_LOCAL_REPO=extra/ffmpeg
 
 set -e

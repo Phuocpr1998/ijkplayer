@@ -48,6 +48,7 @@
 #include "libavutil/avassert.h"
 #include "libavutil/time.h"
 #include "libavformat/avformat.h"
+#include "ijkavformat/ijklas.h"
 #if CONFIG_AVDEVICE
 #include "libavdevice/avdevice.h"
 #endif
@@ -1371,7 +1372,7 @@ retry:
             if (!isnan(vp->pts)) {
                 update_video_pts(is, ffp_get_frame_pts(vp, is->speed), vp->pos, vp->serial);
                 // Update position
-                if (vp->frame != NULL && vp->frame->pts > 0) {
+                if (is->start_get_position > 0 && vp->frame != NULL && vp->frame->pts > 0) {
                     AVRational q;
                     q.num = 1;
                     q.den = AV_TIME_BASE;
@@ -3215,6 +3216,13 @@ static int read_thread(void *arg)
 
     if (ffp->iformat_name)
         is->iformat = av_find_input_format(ffp->iformat_name);
+ 
+    if (ffp->is_manifest) {
+        extern AVInputFormat ijkff_las_demuxer;
+        is->iformat = &ijkff_las_demuxer;
+        av_dict_set_int(&ffp->format_opts, "las_player_statistic", (intptr_t) (&ffp->las_player_statistic), 0);
+        ffp->find_stream_info = false;
+    }
     err = avformat_open_input(&ic, is->filename, is->iformat, &ffp->format_opts);
     if (err < 0) {
         print_error(is->filename, err);
@@ -3868,6 +3876,7 @@ static VideoState *stream_open(FFPlayer *ffp, const char *filename, AVInputForma
     }
     is->initialized_decoder = 1;
     is->speed = 1.0; // init speed
+    is->start_get_position = -1;
     ffp->countFindAudioStream = 100; // init count Find Audio Stream
     return is;
 fail:
@@ -4138,6 +4147,7 @@ FFPlayer *ffp_create()
 
     av_opt_set_defaults(ffp);
 
+    las_stat_init(&ffp->las_player_statistic);
     return ffp;
 }
 
@@ -4157,6 +4167,7 @@ void ffp_destroy(FFPlayer *ffp)
     ffpipenode_free_p(&ffp->node_vdec);
     ffpipeline_free_p(&ffp->pipeline);
     ijkmeta_destroy_p(&ffp->meta);
+    las_stat_destroy(&ffp->las_player_statistic);
     ffp_reset_internal(ffp);
 
     SDL_DestroyMutexP(&ffp->af_mutex);
@@ -4278,7 +4289,7 @@ void *ffp_set_ijkio_inject_opaque(FFPlayer *ffp, void *opaque)
     ijkio_manager_destroyp(&ffp->ijkio_manager_ctx);
     ijkio_manager_create(&ffp->ijkio_manager_ctx, ffp);
     ijkio_manager_set_callback(ffp->ijkio_manager_ctx, ijkio_app_func_event);
-    ffp_set_option_int(ffp, FFP_OPT_CATEGORY_FORMAT, "ijkiomanager", (int64_t)(intptr_t)ffp->ijkio_manager_ctx);
+    ffp_set_option_intptr(ffp, FFP_OPT_CATEGORY_FORMAT, "ijkiomanager", (uintptr_t)ffp->ijkio_manager_ctx);
 
     return prev_weak_thiz;
 }
@@ -4292,7 +4303,7 @@ void *ffp_set_inject_opaque(FFPlayer *ffp, void *opaque)
 
     av_application_closep(&ffp->app_ctx);
     av_application_open(&ffp->app_ctx, ffp);
-    ffp_set_option_int(ffp, FFP_OPT_CATEGORY_FORMAT, "ijkapplication", (int64_t)(intptr_t)ffp->app_ctx);
+    ffp_set_option_intptr(ffp, FFP_OPT_CATEGORY_FORMAT, "ijkapplication", (uint64_t)(intptr_t)ffp->app_ctx);
 
     ffp->app_ctx->func_on_app_event = app_func_event;
     return prev_weak_thiz;
@@ -4314,6 +4325,15 @@ void ffp_set_option_int(FFPlayer *ffp, int opt_category, const char *name, int64
 
     AVDictionary **dict = ffp_get_opt_dict(ffp, opt_category);
     av_dict_set_int(dict, name, value, 0);
+}
+
+void ffp_set_option_intptr(FFPlayer *ffp, int opt_category, const char *name, uintptr_t value)
+{
+    if (!ffp)
+        return;
+
+    AVDictionary **dict = ffp_get_opt_dict(ffp, opt_category);
+    av_dict_set_intptr(dict, name, value, 0);
 }
 
 void ffp_set_overlay_format(FFPlayer *ffp, int chroma_fourcc)
@@ -4532,6 +4552,16 @@ int ffp_wait_stop_l(FFPlayer *ffp)
     return 0;
 }
 
+double ffp_clock_get(Clock c) {
+    if (*c.queue_serial != c.serial)
+        return NAN;
+    if (c.paused) {
+        return c.pts;
+    }
+    double time = av_gettime_relative() / 1000000.0;
+    return c.pts_drift + time - (time - c.last_updated) * (1.0 - c.speed);
+}
+
 int ffp_seek_to_l(FFPlayer *ffp, long msec)
 {
     assert(ffp);
@@ -4542,10 +4572,37 @@ int ffp_seek_to_l(FFPlayer *ffp, long msec)
 
     if (!is)
         return EIJK_NULL_IS_PTR;
+    
+    if (msec == -2511000) {
+        av_log(ffp, AV_LOG_ERROR, "Trigger seek magic number %lld\n", msec);
+        if (is->audio_stream < 0) {
+            // skip seek video with no audio
+            return 0;
+        }
+        duration = is->ic->duration;
+        seek_pos = is->position;
+    }
+
+    double masterClock = 0.0;
+    if (is->av_sync_type == AV_SYNC_VIDEO_MASTER) {
+        if (is->video_st)
+            masterClock = ffp_clock_get(is->vidclk);
+        else
+            masterClock = ffp_clock_get(is->audclk);
+    } else if (is->av_sync_type ==AV_SYNC_AUDIO_MASTER) {
+        if (is->audio_st)
+            masterClock = ffp_clock_get(is->audclk);
+        else
+            masterClock = ffp_clock_get(is->extclk);
+    } else {
+        masterClock = ffp_clock_get(is->extclk);
+    }
 
     if (duration > 0 && seek_pos >= duration && ffp->enable_accurate_seek) {
-        toggle_pause(ffp, 1);
-        ffp_notify_msg1(ffp, FFP_MSG_COMPLETED);
+        if (msec != -2511000) {
+            toggle_pause(ffp, 1);
+            ffp_notify_msg1(ffp, FFP_MSG_COMPLETED);
+        }
         return 0;
     }
 
@@ -4553,11 +4610,13 @@ int ffp_seek_to_l(FFPlayer *ffp, long msec)
     if (start_time > 0 && start_time != AV_NOPTS_VALUE)
         seek_pos += start_time;
 
+    int64_t curPos = masterClock * AV_TIME_BASE;
+    int64_t incr = seek_pos - curPos;  
     // FIXME: 9 seek by bytes
     // FIXME: 9 seek out of range
     // FIXME: 9 seekable
     av_log(ffp, AV_LOG_DEBUG, "stream_seek %"PRId64"(%d) + %"PRId64", \n", seek_pos, (int)msec, start_time);
-    stream_seek(is, seek_pos, 0, 0);
+    stream_seek(is, seek_pos, incr, ffp->seek_by_bytes);
     return 0;
 }
 
@@ -4567,6 +4626,7 @@ long ffp_get_current_position_l(FFPlayer *ffp)
     VideoState *is = ffp->is;
     if (!is || !is->ic)
         return 0;
+    is->start_get_position = 1;
     return is->position;
 
     // int64_t start_time = is->ic->start_time;
@@ -4763,12 +4823,18 @@ void ffp_audio_statistic_l(FFPlayer *ffp)
 {
     VideoState *is = ffp->is;
     ffp_track_statistic_l(ffp, is->audio_st, &is->audioq, &ffp->stat.audio_cache);
+    if (ffp->is_manifest) {
+          las_set_audio_cached_duration_ms(&ffp->las_player_statistic, ffp->stat.audio_cache.duration);
+    }
 }
 
 void ffp_video_statistic_l(FFPlayer *ffp)
 {
     VideoState *is = ffp->is;
     ffp_track_statistic_l(ffp, is->video_st, &is->videoq, &ffp->stat.video_cache);
+    if (ffp->is_manifest) {
+        las_set_video_cached_duration_ms(&ffp->las_player_statistic, ffp->stat.video_cache.duration);
+    }
 }
 
 void ffp_statistic_l(FFPlayer *ffp)
@@ -4940,7 +5006,6 @@ void ffp_set_playback_rate(FFPlayer *ffp, float rate)
         set_clock_speed(&ffp->is->extclk, (double)rate);
     }
 }
-
 void ffp_set_playback_volume(FFPlayer *ffp, float volume)
 {
     if (!ffp)
@@ -5205,26 +5270,26 @@ IjkMediaMeta *ffp_get_meta_l(FFPlayer *ffp)
 
     return ffp->meta;
 }
+
 void ffp_get_current_frame_l(FFPlayer *ffp, uint8_t *frame_buf)
 {
-    VideoState *is = ffp->is;
-    Frame *vp;
-    int i = 0, linesize = 0, pixels = 0;
-    uint8_t *src;
-    
-    if (is->pictq.rindex < 0)
-        return;
-    vp = &is->pictq.queue[is->pictq.rindex];
-    if (vp == NULL || vp->bmp == NULL)
-        return;
-    int height = vp->bmp->h;
-    int width = vp->bmp->w;
-    // copy data to bitmap in java code
-    linesize = vp->bmp->pitches[0];
-    src = vp->bmp->pixels[0];
-    pixels = width * 4;
-    for (i = 0; i < height; i++) {
-        memcpy(frame_buf + i * pixels, src + i * linesize, pixels);
-    }
-}
+  VideoState *is = ffp->is;
+  Frame *vp;
+  int i = 0, linesize = 0, pixels = 0;
+  uint8_t *src;
 
+  if (is->pictq.rindex < 0)
+    return;
+  vp = &is->pictq.queue[is->pictq.rindex];
+  if (vp == NULL || vp->bmp == NULL)
+    return;
+  int height = vp->bmp->h;
+  int width = vp->bmp->w;
+  // copy data to bitmap in java code
+  linesize = vp->bmp->pitches[0];
+  src = vp->bmp->pixels[0];
+  pixels = width * 4;
+  for (i = 0; i < height; i++) {
+      memcpy(frame_buf + i * pixels, src + i * linesize, pixels);
+  }
+}

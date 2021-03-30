@@ -55,6 +55,9 @@
 #define INIT_BUFFER_THRESHOLD_MAX_MS (8*1000)
 #define MAX_BUFFER_TIME 10000
 #define MAX_STATE_CNT 30
+#define NALU_HEAD_LEN 4
+#define H264_NAL_SPS 7
+#define H264_NAL_PPS 8
 
 typedef struct AdaptiveConfig {
     int32_t buffer_init;
@@ -1402,16 +1405,17 @@ static int PlayList_read_thread(void* data) {
         GopReader_close(gop_reader, playlist);
         Representation* rep = playlist->adaptation_set.representations[new_index];
         if (ff_check_interrupt(&s->interrupt_callback)) {
-            TagQueue_abort(&playlist->tag_queue);
             break;
         }
         GopReader_init(gop_reader, rep, s, playlist);
         ret = GopReader_download_gop(gop_reader, &playlist->multi_rate_adaption, playlist);
         if (ret < 0) {
             LasStatistic_on_rep_read_error(playlist->las_statistic, ret);
+            break;
         }
     }
 
+    TagQueue_abort(&playlist->tag_queue);
     if (playlist->algo_thread) {
         log_info("Signals algo_thread");
         algo_cond_signal(playlist);
@@ -1888,7 +1892,7 @@ static int las_read_header(AVFormatContext* s) {
 
 fail:
     las_close(s);
-    return ret == 0 ? 0 : AVERROR_EOF;
+    return ret == 0 ? 0 : AVERROR_EXIT;
 }
 
 /*
@@ -1899,6 +1903,105 @@ static void reset_packet(AVPacket* pkt) {
     if (pkt) {
         av_init_packet(pkt);
         pkt->data = NULL;
+    }
+}
+
+static bool h264_check_sps_pps(const AVPacket* pkt) {
+    if (pkt && pkt->data && pkt->size >= 5) {
+        int offset = 0;
+
+        while (offset >= 0 && offset + 5 <= pkt->size) {
+            uint8_t* nal_start = pkt->data + offset;
+            int nal_size = AV_RB32(nal_start);
+            int nal_type = nal_start[4] & 0x1f;
+
+            if (nal_type == H264_NAL_SPS || nal_type == H264_NAL_PPS) {
+                return true;
+            }
+
+            offset += nal_size + 4;
+        }
+    }
+    return false;
+}
+
+static bool read_sps_pps_by_avcc(uint8_t* extradata, uint32_t extrasize,
+                                 uint8_t** sps, int* sps_len,
+                                 uint8_t** pps, int* pps_len) {
+    uint8_t* spc = extradata + 6;
+    uint32_t sps_size = AV_RB16(spc);
+    if (sps_size) {
+        *sps_len = sps_size;
+        *sps = (uint8_t*)av_mallocz(sps_size);
+        if (!*sps) {
+            return false;
+        }
+        spc += 2;
+        memcpy(*sps, spc, sps_size);
+        spc += sps_size;
+    }
+    spc += 1;
+    uint32_t  pps_size = AV_RB16(spc);
+    if (pps_size) {
+        *pps_len = pps_size;
+        *pps = (uint8_t*)av_mallocz(pps_size);
+        if (!*pps) {
+            if (*sps) {
+                free(*sps);
+            }
+            return false;
+        }
+        spc += 2;
+        memcpy(*pps, spc, pps_size);
+    }
+    return true;
+}
+
+static void insert_sps_pps_into_avpacket(AVPacket* packet, uint8_t* new_extradata, int new_extradata_size, PlayList* playlist) {
+    uint8_t* sps = NULL, *pps = NULL;
+    int sps_len = 0, pps_len = 0;
+
+    if (read_sps_pps_by_avcc(new_extradata, new_extradata_size, &sps, &sps_len, &pps, &pps_len)) {
+        int size = packet->size;
+        if (sps) {
+            size += NALU_HEAD_LEN + sps_len;
+        }
+        if (pps) {
+            size += NALU_HEAD_LEN + pps_len;
+        }
+        if (size == packet->size) {
+            return;
+        }
+        AVPacket new_pack;
+        int res = av_new_packet(&new_pack, size);
+        if (res < 0) {
+            log_error("Failed memory allocation");
+        } else {
+            av_packet_copy_props(&new_pack, packet);
+            uint8_t* data = new_pack.data;
+
+            if (sps) {
+                AV_WB32(data, sps_len);
+                data += NALU_HEAD_LEN;
+                memcpy(data, sps, sps_len);
+                data += sps_len;
+                log_info("insert sps, size:%d", sps_len);
+            } else {
+                log_info("sps is null");
+            }
+            if (pps) {
+                AV_WB32(data, pps_len);
+                data += NALU_HEAD_LEN;
+                memcpy(data, pps, pps_len);
+                data += pps_len;
+                log_info("insert pps, size:%d", pps_len);
+            } else {
+                log_info("pps is null");
+            }
+            memcpy(data, packet->data, packet->size);
+            av_packet_unref(packet);
+            *packet = new_pack;
+        }
     }
 }
 
@@ -1931,22 +2034,30 @@ static int las_read_packet(AVFormatContext* s, AVPacket* pkt) {
         } else {
             // go packet
             *pkt = playlist->pkt;
+            if (pkt->stream_index >= 0 && pkt->stream_index < MAX_STREAM_NUM) {
+                pkt->stream_index = playlist->stream_index_map[pkt->stream_index];
+            }
+            AVCodecParameters* codec = playlist->ctx->streams[pkt->stream_index]->codecpar;
+            if (codec->extradata) {
+                if (codec->codec_id == AV_CODEC_ID_H264
+                    && !h264_check_sps_pps(pkt)) {
+                    insert_sps_pps_into_avpacket(pkt, codec->extradata, codec->extradata_size, playlist);
+                }
+                uint8_t *side = av_packet_new_side_data(pkt, AV_PKT_DATA_NEW_EXTRADATA, codec->extradata_size);
+                if (side) {
+                    memcpy(side, codec->extradata, codec->extradata_size);
+                    av_freep(&codec->extradata);
+                    codec->extradata_size = 0;
+                }
+            }
             break;
         }
     }
     reset_packet(&playlist->pkt);
-
-    if (pkt->stream_index >= 0 && pkt->stream_index < MAX_STREAM_NUM) {
-        pkt->stream_index = playlist->stream_index_map[pkt->stream_index];
-    }
-
     LasStatistic_on_read_packet(playlist->las_statistic, playlist);
 
 fail:
-    if (ret != 0) {
-        log_error("ret:%s(0x%x), will return AVERROR_EOF", av_err2str(ret), ret);
-    }
-    return ret == 0 ? 0 : AVERROR_EOF;
+    return ret == 0 ? 0 : AVERROR_EXIT;
 }
 
 static int las_read_seek(AVFormatContext* s, int stream_index,
