@@ -1476,6 +1476,71 @@ display:
     }
 }
 
+int bound(int left, int mid, int right){
+    return  mid < left ? left : (mid > right ? right  : mid);
+}
+
+void ffp_set_speed(FFPlayer *ffp, float speed) {
+    if (!ffp || speed == 0.0)
+        return;
+    av_log(ffp, AV_LOG_ERROR, "ffp set speed: %f\n", speed);
+    if (ffp->is != NULL) {
+        ffp->is->speed = (double)speed;
+    }
+}
+double ffp_get_speed(FFPlayer *ffp) {
+    if (!ffp)
+        return 1.0;
+    av_log(ffp, AV_LOG_ERROR, "ffp get speed \n");
+    if (ffp->is != NULL) {
+        return ffp->is->speed;
+    }
+    return 1.0;
+}
+
+void ffp_audio_disable(FFPlayer *ffp, bool disabled){
+    if (ffp->is != NULL) {
+        ffp->audio_disable = disabled;
+    }
+}
+
+uint8_t* ffp_get_video_frame_l(FFPlayer *ffp,int * frameWidth, int * frameHeight)
+{
+    VideoState *is = ffp->is;
+    Frame *vp;
+    if (is->pictq.rindex < 0)
+        return NULL;
+    vp = &is->pictq.queue[is->pictq.rindex];
+    if (vp == NULL || vp->bmp == NULL)
+        return NULL;
+    int height = vp->bmp->h;
+    int width = vp->bmp->w;
+    int channel = 4;
+    *frameHeight = height;
+    *frameWidth = width;
+    uint8_t* frame_buf = (uint8_t*)malloc(height*width*channel*4);
+    //convert yuv to rgb
+    for(int x=0;x<width;x++)
+    {
+        for(int y=0;y<height;y++)
+        {
+            const int xx = x >> 1;
+            const int yy = y >> 1;
+            const int Y = vp->bmp->pixels[0][y * vp->bmp->pitches[0] + x] - 16;
+            const int U = vp->bmp->pixels[1][yy * vp->bmp->pitches[1] + xx] - 128;
+            const int V = vp->bmp->pixels[2][yy * vp->bmp->pitches[2] + xx] - 128;
+            
+            const int r = bound(0, (298 * Y + 409 * V + 128) >> 8, 255);
+            const int g = bound(0, (298 * Y - 100 * U - 208 * V + 128) >> 8, 255);
+            const int b = bound(0, (298 * Y + 516 * U + 128) >> 8, 255);
+            
+            frame_buf[y*width*channel + x*channel + 1] = r;
+            frame_buf[y*width*channel + x*channel+2] = g;
+            frame_buf[y*width*channel + x*channel + 3] = b;
+        }
+    }
+    return frame_buf;
+}
 /* allocate a picture (needs to do that in main thread to avoid
    potential locking problems */
 static void alloc_picture(FFPlayer *ffp, int frame_format)
@@ -3644,7 +3709,7 @@ static int read_thread(void *arg)
                 SDL_Delay(100);
             }
             SDL_LockMutex(wait_mutex);
-            SDL_CondWaitTimeout(is->continue_read_thread, wait_mutex, 10);
+            SDL_CondWaitTimeout(is->continue_read_thread, wait_mutex, 5);
             SDL_UnlockMutex(wait_mutex);
             ffp_statistic_l(ffp);
             continue;
@@ -4941,16 +5006,6 @@ void ffp_set_playback_rate(FFPlayer *ffp, float rate)
         set_clock_speed(&ffp->is->extclk, (double)rate);
     }
 }
-
-void ffp_set_speed(FFPlayer *ffp, float speed) {
-    if (!ffp || speed == 0.0)
-        return;
-    av_log(ffp, AV_LOG_ERROR, "ffp set speed: %f\n", speed);
-    if (ffp->is != NULL) {
-        ffp->is->speed = (double)speed;
-    }
-}
-
 void ffp_set_playback_volume(FFPlayer *ffp, float volume)
 {
     if (!ffp)

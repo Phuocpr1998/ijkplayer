@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <Scheme
    LastUpgradeVersion = "0830"
-   version = "1.3">
+   version = "1.7">
    <BuildAction
       parallelizeBuildables = "YES"
       buildImplicitDependencies = "YES">
@@ -29,8 +29,6 @@
       shouldUseLaunchSchemeArgsEnv = "YES">
       <Testables>
       </Testables>
-      <AdditionalOptions>
-      </AdditionalOptions>
    </TestAction>
    <LaunchAction
       buildConfiguration = "Debug"
@@ -51,8 +49,6 @@
             ReferencedContainer = "container:IJKMediaPlayer.xcodeproj">
          </BuildableReference>
       </MacroExpansion>
-      <AdditionalOptions>
-      </AdditionalOptions>
    </LaunchAction>
    <ProfileAction
       buildConfiguration = "Release"
@@ -76,5 +72,23 @@
    <ArchiveAction
       buildConfiguration = "Release"
       revealArchiveInOrganizer = "YES">
+      <PreActions>
+         <ExecutionAction
+            ActionType = "Xcode.IDEStandardExecutionActionsCore.ExecutionActionType.ShellScriptAction">
+            <ActionContent
+               title = "Run Script"
+               scriptText = "# Type a script or drag a script file from your workspace to insert its path.&#10;#!/bin/sh&#10;UNIVERSAL_OUTPUTFOLDER=${BUILD_DIR}/${CONFIGURATION}-universal&#10;# make sure the output directory exists&#10;mkdir -p &quot;${UNIVERSAL_OUTPUTFOLDER}&quot;&#10;# Step 1. Build Device and Simulator versions. This also include the full bitcode generation of framework&#10;xcodebuild BITCODE_GENERATION_MODE=bitcode OTHER_CFLAGS=&quot;-fembed-bitcode&quot; -target &quot;IJKMediaFrameworkWithSSL&quot; ONLY_ACTIVE_ARCH=NO -configuration ${CONFIGURATION} -sdk iphoneos BUILD_DIR=&quot;${BUILD_DIR}&quot; BUILD_ROOT=&quot;${BUILD_ROOT}&quot; clean build&#10;xcodebuild BITCODE_GENERATION_MODE=bitcode OTHER_CFLAGS=&quot;-fembed-bitcode&quot; -target &quot;IJKMediaFrameworkWithSSL&quot; ONLY_ACTIVE_ARCH=NO -configuration ${CONFIGURATION} -sdk iphonesimulator BUILD_DIR=&quot;${BUILD_DIR}&quot; BUILD_ROOT=&quot;${BUILD_ROOT}&quot; clean build&#10;# Step 2. Copy the framework structure (from iphoneos build) to the universal folder&#10;cp -R &quot;${BUILD_DIR}/${CONFIGURATION}-iphoneos/IJKMediaFrameworkWithSSL.framework&quot; &quot;${UNIVERSAL_OUTPUTFOLDER}/&quot;&#10;# Step 3. Copy Swift modules (from iphonesimulator build) to the copied framework directory&#10;cp -R &quot;${BUILD_DIR}/${CONFIGURATION}-iphonesimulator/IJKMediaFrameworkWithSSL.framework/Modules/IJKMediaFrameworkWithSSL.swiftmodule/.&quot; &quot;${UNIVERSAL_OUTPUTFOLDER}/IJKMediaFrameworkWithSSL.framework/Modules/IJKMediaFrameworkWithSSL.swiftmodule&quot;&#10;# Step 4. Create universal binary file using lipo and place the combined executable in the copied framework directory&#10;lipo -create -output &quot;${UNIVERSAL_OUTPUTFOLDER}/IJKMediaFrameworkWithSSL.framework/IJKMediaFrameworkWithSSL&quot; &quot;${BUILD_DIR}/${CONFIGURATION}-iphonesimulator/IJKMediaFrameworkWithSSL.framework/IJKMediaFrameworkWithSSL&quot; &quot;${BUILD_DIR}/${CONFIGURATION}-iphoneos/IJKMediaFrameworkWithSSL.framework/IJKMediaFrameworkWithSSL&quot;&#10;# Step 5. Convenience step to copy the framework to the project&apos;s directory&#10;cp -R &quot;${UNIVERSAL_OUTPUTFOLDER}/IJKMediaFrameworkWithSSL.framework&quot; &quot;${PROJECT_DIR}&quot;&#10;# Step 6. Convenience step to open the project&apos;s directory in Finder&#10;open &quot;${PROJECT_DIR}&quot;&#10;">
+               <EnvironmentBuildable>
+                  <BuildableReference
+                     BuildableIdentifier = "primary"
+                     BlueprintIdentifier = "5450AFC11E63EA4300568494"
+                     BuildableName = "IJKMediaFrameworkWithSSL.framework"
+                     BlueprintName = "IJKMediaFrameworkWithSSL"
+                     ReferencedContainer = "container:IJKMediaPlayer.xcodeproj">
+                  </BuildableReference>
+               </EnvironmentBuildable>
+            </ActionContent>
+         </ExecutionAction>
+      </PreActions>
    </ArchiveAction>
 </Scheme>
