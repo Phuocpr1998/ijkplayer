@@ -3565,6 +3565,23 @@ static int read_thread(void *arg)
         pkt->flags = 0;
         ret = av_read_frame(ic, pkt);
 
+        if (is->video_stream < 0) {
+            av_log(NULL, AV_LOG_ERROR, "is->video_stream = %d\n", is->video_stream);
+#if 1
+            int video_stream_idx = av_find_best_stream(ic, AVMEDIA_TYPE_VIDEO,
+                                                           st_index[AVMEDIA_TYPE_VIDEO],
+                                                           -1, NULL, 0);
+            if (video_stream_idx >= 0){
+                // refine video
+                av_log(NULL, AV_LOG_ERROR, "Video finded\n");
+                refind_stream(ffp, ic, video_stream_idx, IJKM_KEY_VIDEO_STREAM);
+            }
+            av_log(NULL, AV_LOG_ERROR, "is->video_stream = %d\n", is->video_stream);
+#endif
+        } else {
+            av_log(NULL, AV_LOG_ERROR, "is->video_stream = %d\n", is->video_stream);
+        }
+
         if (!ffp->audio_disable && is->audio_stream < 0 && ffp->countFindAudioStream > 0) {
             av_log(NULL, AV_LOG_INFO, "is->audio_stream = %d\n", is->audio_stream);
 #if 1
@@ -3584,20 +3601,6 @@ static int read_thread(void *arg)
             stream_component_close(ffp, is->audio_stream);
         }
 
-        if (is->video_stream < 0 && !ffp->video_disable) {
-            av_log(NULL, AV_LOG_INFO, "is->video_stream = %d\n", is->video_stream);
-#if 1
-            int video_stream_idx = av_find_best_stream(ic, AVMEDIA_TYPE_VIDEO,
-                                                           st_index[AVMEDIA_TYPE_VIDEO],
-                                                           -1, NULL, 0);
-            if (video_stream_idx >= 0){
-                // refine video
-                av_log(NULL, AV_LOG_WARNING, "Video finded\n");
-                refind_stream(ffp, ic, video_stream_idx, IJKM_KEY_VIDEO_STREAM);
-            }
-            av_log(NULL, AV_LOG_INFO, "is->video_stream = %d\n", is->video_stream);
-#endif
-        }
 
         if (ret < 0) {
             int pb_eof = 0;
