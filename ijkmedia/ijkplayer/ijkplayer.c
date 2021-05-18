@@ -218,7 +218,24 @@ void ijkmp_set_playback_rate(IjkMediaPlayer *mp, float rate)
 
     MPTRACE("%s(%f)\n", __func__, rate);
     pthread_mutex_lock(&mp->mutex);
-    ffp_set_playback_rate(mp->ffplayer, rate);
+    ffp_set_speed(mp->ffplayer, rate);
+    pthread_mutex_unlock(&mp->mutex);
+    MPTRACE("%s()=void\n", __func__);
+}
+double ijkmp_get_speed(IjkMediaPlayer *mp)
+{
+    assert(mp);
+    pthread_mutex_lock(&mp->mutex);
+    double ret = ffp_get_speed(mp->ffplayer);
+    pthread_mutex_unlock(&mp->mutex);
+    return ret;
+    
+}
+void ijkmp_audio_disable(IjkMediaPlayer *mp, bool disable){
+    assert(mp);
+    MPTRACE("%s(%d)\n", __func__, disable);
+    pthread_mutex_lock(&mp->mutex);
+    ffp_audio_disable(mp->ffplayer, disable);
     pthread_mutex_unlock(&mp->mutex);
     MPTRACE("%s()=void\n", __func__);
 }
@@ -811,4 +828,16 @@ void ijkmp_get_current_frame(IjkMediaPlayer *mp, uint8_t *frame_buf)
   pthread_mutex_lock(&mp->mutex);	
   ijkmp_get_current_frame_l(mp, frame_buf);	
   pthread_mutex_unlock(&mp->mutex);	
+}
+
+uint8_t * ijkmp_get_video_frame(IjkMediaPlayer *mp, int* frameWidth, int* frameHeight){
+    return ffp_get_video_frame_l(mp->ffplayer, frameWidth, frameHeight);
+}
+static uint8_t * ijkmp_get_video_frame_l(IjkMediaPlayer *mp, int* frameWidth, int* frameHeight){
+    assert(mp);
+    pthread_mutex_lock(&mp->mutex);
+    uint8_t *frame_buf = ijkmp_get_video_frame(mp, frameWidth, frameHeight);
+    pthread_mutex_unlock(&mp->mutex);
+    return frame_buf;
+    
 }

@@ -219,5 +219,9 @@ int             ijkmp_get_msg(IjkMediaPlayer *mp, AVMessage *msg, int block);
 void            ijkmp_set_frame_at_time(IjkMediaPlayer *mp, const char *path, int64_t start_time, int64_t end_time, int num, int definition);
 void            ijkmp_get_current_frame(IjkMediaPlayer *mp, uint8_t *frame_buf);
 static void     ijkmp_get_current_frame_l(IjkMediaPlayer *mp, uint8_t *frame_buf);
+uint8_t * ijkmp_get_video_frame(IjkMediaPlayer *mp, int* frameWidth, int* frameHeight);
+static uint8_t * ijkmp_get_video_frame_l(IjkMediaPlayer *mp, int* frameWidth, int* frameHeight);
+double ijkmp_get_speed(IjkMediaPlayer *mp);
+void ijkmp_audio_disable(IjkMediaPlayer *mp, bool disable);
 
 #endif
