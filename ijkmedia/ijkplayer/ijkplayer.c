@@ -645,6 +645,34 @@ long ijkmp_get_current_position(IjkMediaPlayer *mp)
     return retval;
 }
 
+static int ijkmp_get_current_video_width_l(IjkMediaPlayer *mp)
+{
+    return ffp_video_width_l(mp->ffplayer);
+}
+
+int ijkmp_get_current_video_width(IjkMediaPlayer *mp)
+{
+    assert(mp);
+    pthread_mutex_lock(&mp->mutex);
+    int retval = ijkmp_get_current_video_width_l(mp);
+    pthread_mutex_unlock(&mp->mutex);
+    return retval;
+}
+
+static int ijkmp_get_current_video_height_l(IjkMediaPlayer *mp)
+{
+    return ffp_video_height_l(mp->ffplayer);
+}
+
+int ijkmp_get_current_video_height(IjkMediaPlayer *mp)
+{
+    assert(mp);
+    pthread_mutex_lock(&mp->mutex);
+    int retval = ijkmp_get_current_video_height_l(mp);
+    pthread_mutex_unlock(&mp->mutex);
+    return retval;
+}
+
 static long ijkmp_get_duration_l(IjkMediaPlayer *mp)
 {
     return ffp_get_duration_l(mp->ffplayer);

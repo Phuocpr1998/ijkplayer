@@ -348,6 +348,34 @@ LABEL_RETURN:
     return retval;
 }
 
+static jint
+IjkMediaPlayer_getCurrentVideoWidth(JNIEnv *env, jobject thiz)
+{
+    jint retval = 0;
+    IjkMediaPlayer *mp = jni_get_media_player(env, thiz);
+    JNI_CHECK_GOTO(mp, env, NULL, "mpjni: getCurrentVideoWidth: null mp", LABEL_RETURN);
+
+    retval = ijkmp_get_current_video_width(mp);
+
+LABEL_RETURN:
+    ijkmp_dec_ref_p(&mp);
+    return retval;
+}
+
+static jint
+IjkMediaPlayer_getCurrentVideoHeight(JNIEnv *env, jobject thiz)
+{
+    jint retval = 0;
+    IjkMediaPlayer *mp = jni_get_media_player(env, thiz);
+    JNI_CHECK_GOTO(mp, env, NULL, "mpjni: getCurrentVideoHeight: null mp", LABEL_RETURN);
+
+    retval = ijkmp_get_current_video_height(mp);
+
+LABEL_RETURN:
+    ijkmp_dec_ref_p(&mp);
+    return retval;
+}
+
 static jlong
 IjkMediaPlayer_getDuration(JNIEnv *env, jobject thiz)
 {
@@ -1207,6 +1235,9 @@ static JNINativeMethod g_methods[] = {
     { "native_setLogLevel",     "(I)V",                     (void *) IjkMediaPlayer_native_setLogLevel },
     { "_setFrameAtTime",        "(Ljava/lang/String;JJII)V", (void *) IjkMediaPlayer_setFrameAtTime },
     { "getCurrentFrame",        "(Landroid/graphics/Bitmap;)Z",      (void *) IjkMediaPlayer_getCurrentFrame },
+
+    { "_getCurrentVideoWidth",          "()I",                      (void *) IjkMediaPlayer_getCurrentVideoWidth },
+    { "_getCurrentVideoHeight",         "()I",                      (void *) IjkMediaPlayer_getCurrentVideoHeight },
 };
 
 JNIEXPORT jint JNI_OnLoad(JavaVM *vm, void *reserved)

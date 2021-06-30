@@ -116,6 +116,8 @@ void      ffp_set_property_float(FFPlayer *ffp, int id, float value);
 int64_t   ffp_get_property_int64(FFPlayer *ffp, int id, int64_t default_value);
 void      ffp_set_property_int64(FFPlayer *ffp, int id, int64_t value);
 void      ffp_get_current_frame_l(FFPlayer *ffp, uint8_t *frame_buf);
+int       ffp_video_width_l(FFPlayer *ffp);
+int       ffp_video_height_l(FFPlayer *ffp);
 uint8_t* ffp_get_video_frame_l(FFPlayer *ffp,int * frameWidth, int * frameHeight);
 
 // must be freed with free();

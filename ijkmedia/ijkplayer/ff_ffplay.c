@@ -3202,11 +3202,16 @@ static int read_thread(void *arg)
         av_dict_set(&ffp->format_opts, "scan_all_pmts", "1", AV_DICT_DONT_OVERWRITE);
         scan_all_pmts_set = 1;
     }
-    if (av_stristart(is->filename, "rtmp", NULL) ||
-        av_stristart(is->filename, "rtsp", NULL)) {
+    if (av_stristart(is->filename, "rtmp", NULL)) {
         // There is total different meaning for 'timeout' option in rtmp
         av_log(ffp, AV_LOG_WARNING, "remove 'timeout' option for rtmp.\n");
         av_dict_set(&ffp->format_opts, "timeout", NULL, 0);
+    }
+
+    if (av_stristart(is->filename, "rtsp", NULL)) {
+        av_dict_set(&ffp->format_opts, "analyzeduration", "10000000", AV_DICT_MATCH_CASE);
+        av_dict_set(&ffp->format_opts, "stimeout", "3000000", AV_DICT_MATCH_CASE);
+        av_dict_set(&ffp->format_opts, "rtsp_flags", "prefer_tcp", AV_DICT_MATCH_CASE);
     }
 
     if (ffp->skip_calc_frame_rate) {
@@ -5295,4 +5300,28 @@ void ffp_get_current_frame_l(FFPlayer *ffp, uint8_t *frame_buf)
   for (i = 0; i < height; i++) {
       memcpy(frame_buf + i * pixels, src + i * linesize, pixels);
   }
+}
+
+int ffp_video_height_l(FFPlayer *ffp)
+{
+  VideoState *is = ffp->is;
+  AVFormatContext *ic = is->ic;
+  if (ic == NULL)
+    return -1;
+  if (is->video_stream < 0) {
+    return -2;
+  }
+  return ic->streams[is->video_stream]->codec->height;
+}
+
+int ffp_video_width_l(FFPlayer *ffp)
+{
+  VideoState *is = ffp->is;
+  AVFormatContext *ic = is->ic;
+  if (ic == NULL)
+    return -1;
+  if (is->video_stream < 0) {
+    return -2;
+  }
+  return ic->streams[is->video_stream]->codec->width;
 }
