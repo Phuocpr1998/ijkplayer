@@ -3648,8 +3648,6 @@ static int read_thread(void *arg)
             }
             av_log(NULL, AV_LOG_ERROR, "is->video_stream = %d\n", is->video_stream);
 #endif
-        } else {
-            av_log(NULL, AV_LOG_ERROR, "is->video_stream = %d\n", is->video_stream);
         }
 
         if (!ffp->audio_disable && is->audio_stream < 0 && ffp->countFindAudioStream > 0) {
